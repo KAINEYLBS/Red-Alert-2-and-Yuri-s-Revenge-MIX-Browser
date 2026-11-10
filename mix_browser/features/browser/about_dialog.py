@@ -48,8 +48,14 @@ class AboutDialog(QDialog):
         identity_layout.addWidget(name, 1)
         layout.addLayout(identity_layout)
 
-        version = re.fullmatch(r"(\d+(?:\.\d+)*)b\d+", __version__)
-        version_text = f"{version.group(1)} beta" if version else __version__
+        version = re.fullmatch(r"(\d+(?:\.\d+)*)b(\d+)", __version__)
+        if version:
+            beta_number = int(version.group(2))
+            version_text = f"{version.group(1)} beta"
+            if beta_number:
+                version_text = f"{version_text} {beta_number}"
+        else:
+            version_text = __version__
         version_label = QLabel(
             self.tr("Version: {0}").format(version_text),
             self,

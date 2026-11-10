@@ -2,7 +2,8 @@
 
 **Red Alert 2 and Yuri's Revenge MIX Browser** 是一款桌面应用，用于浏览和管理 Westwood MIX 归档，以及普通游戏文件和文件夹。
 
-版本：**1.0.0 beta**  
+版本：**1.0.0 beta 1**
+
 README： [English](README.md) | 简体中文  
 界面语言：英语、简体中文
 

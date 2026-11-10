@@ -118,12 +118,10 @@ if exist "dist" (
     --workpath .pyinstaller-work\build ^
     --specpath .pyinstaller-work ^
     --add-data "%~dp0mix_browser\data\icons;mix_browser\data\icons" ^
-    --add-data "%~dp0mix_browser\data\name_sources\xcc;mix_browser\data\name_sources\xcc" ^
+    --add-data "%~dp0mix_browser\data\name_sources\xcc\ra2 mix description.txt;mix_browser\data\name_sources\xcc" ^
+    --add-data "%~dp0mix_browser\data\name_sources\xcc\td mix description.txt;mix_browser\data\name_sources\xcc" ^
+    --add-data "%~dp0mix_browser\data\name_sources\xcc\ts mix description.txt;mix_browser\data\name_sources\xcc" ^
     --add-data "%~dp0mix_browser\translations\ra2ayrmb_zh_CN.qm;mix_browser\translations" ^
-    --add-data "%~dp0THIRD_PARTY_NOTICES.md;licenses" ^
-    --add-data "%~dp0LGPL-3.0-only.txt;licenses" ^
-    --add-data "%~dp0mix_browser\data\name_sources\xcc\COPYING;licenses\XCC" ^
-    --add-data "%~dp0LICENSE;." ^
     main.py
 if errorlevel 1 (
     echo Packaging failed. See the PyInstaller output above.
@@ -153,6 +151,25 @@ set "LICENSE_ROOT=dist\RA2AYRMB\licenses"
 if not exist "%LICENSE_ROOT%" mkdir "%LICENSE_ROOT%"
 if errorlevel 1 goto :license_copy_failed
 
+copy /b "%~dp0LICENSE" "%LICENSE_ROOT%\RA2AYRMB-MIT.txt" >nul
+if errorlevel 1 goto :license_copy_failed
+if not exist "%LICENSE_ROOT%\RA2AYRMB-MIT.txt" goto :license_copy_failed
+copy /b "%~dp0THIRD_PARTY_NOTICES.md" "%LICENSE_ROOT%\THIRD_PARTY_NOTICES.md" >nul
+if errorlevel 1 goto :license_copy_failed
+if not exist "%LICENSE_ROOT%\THIRD_PARTY_NOTICES.md" goto :license_copy_failed
+
+if not exist "%LICENSE_ROOT%\Qt" mkdir "%LICENSE_ROOT%\Qt"
+if errorlevel 1 goto :license_copy_failed
+copy /b "%~dp0LGPL-3.0-only.txt" "%LICENSE_ROOT%\Qt\LGPL-3.0-only.txt" >nul
+if errorlevel 1 goto :license_copy_failed
+if not exist "%LICENSE_ROOT%\Qt\LGPL-3.0-only.txt" goto :license_copy_failed
+
+if not exist "%LICENSE_ROOT%\XCC" mkdir "%LICENSE_ROOT%\XCC"
+if errorlevel 1 goto :license_copy_failed
+copy /b "%~dp0mix_browser\data\name_sources\xcc\COPYING" "%LICENSE_ROOT%\XCC\COPYING" >nul
+if errorlevel 1 goto :license_copy_failed
+if not exist "%LICENSE_ROOT%\XCC\COPYING" goto :license_copy_failed
+
 set "PYTHON_BASE="
 for /f "delims=" %%P in ('%PYTHON% -c "import sys; print(sys.base_prefix)"') do set "PYTHON_BASE=%%P"
 if not defined PYTHON_BASE goto :license_copy_failed
@@ -162,26 +179,6 @@ if errorlevel 1 goto :license_copy_failed
 copy /b "%PYTHON_BASE%\LICENSE.txt" "%LICENSE_ROOT%\Python\LICENSE.txt" >nul
 if errorlevel 1 goto :license_copy_failed
 if not exist "%LICENSE_ROOT%\Python\LICENSE.txt" goto :license_copy_failed
-
-set "PYSIDE_ESSENTIALS_LICENSES_FOUND="
-for /d %%D in (.venv\Lib\site-packages\pyside6_essentials-*.dist-info) do (
-    if not exist "%%D\licenses\*" goto :license_copy_failed
-    robocopy "%%D\licenses" "%LICENSE_ROOT%\%%~nD" /E /R:1 /W:1 >nul
-    if errorlevel 8 goto :license_copy_failed
-    if not exist "%LICENSE_ROOT%\%%~nD\*" goto :license_copy_failed
-    set "PYSIDE_ESSENTIALS_LICENSES_FOUND=1"
-)
-if not defined PYSIDE_ESSENTIALS_LICENSES_FOUND goto :license_copy_failed
-
-set "SHIBOKEN_LICENSES_FOUND="
-for /d %%D in (.venv\Lib\site-packages\shiboken6-*.dist-info) do (
-    if not exist "%%D\licenses\*" goto :license_copy_failed
-    robocopy "%%D\licenses" "%LICENSE_ROOT%\%%~nD" /E /R:1 /W:1 >nul
-    if errorlevel 8 goto :license_copy_failed
-    if not exist "%LICENSE_ROOT%\%%~nD\*" goto :license_copy_failed
-    set "SHIBOKEN_LICENSES_FOUND=1"
-)
-if not defined SHIBOKEN_LICENSES_FOUND goto :license_copy_failed
 
 set "PYCRYPTODOMEX_LICENSE_FOUND="
 for /d %%D in (.venv\Lib\site-packages\pycryptodomex-*.dist-info) do (
