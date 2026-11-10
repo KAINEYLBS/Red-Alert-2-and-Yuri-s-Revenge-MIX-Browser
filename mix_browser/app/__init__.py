@@ -1,0 +1,1 @@
+"""Application startup and composition."""

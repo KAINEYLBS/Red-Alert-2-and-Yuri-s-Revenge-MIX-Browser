@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ra2-mix-browser"
+dynamic = ["version"]
+description = "A desktop and automation interface for browsing Red Alert 2 and Yuri's Revenge MIX archives"
+license = "MIT"
+license-files = [
+    "LICENSE",
+    "LGPL-3.0-only.txt",
+    "mix_browser/data/name_sources/xcc/COPYING",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6-Essentials>=6.8",
+    "mcp>=1.30,<2",
+    "pycryptodomex>=3.20",
+    "python-vlc>=3.0.21203",
+]
+
+[project.optional-dependencies]
+build = [
+    "PySide6-Essentials>=6.8",
+    "PyInstaller>=6.0",
+]
+
+[project.scripts]
+mix-browser = "mix_browser.app.application:run"
+mix-browser-cli = "mix_browser.cli:main"
+mix-browser-mcp = "mix_browser.mcp_server:main"
+
+[tool.setuptools.packages.find]
+include = ["mix_browser*", "ra2ayrcfre*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "mix_browser.__version__"}
+
+[tool.setuptools.package-data]
+mix_browser = [
+    "data/icons/*.ico",
+    "data/icons/*.svg",
+    "data/name_sources/xcc/*",
+    "translations/*.qm",
+]

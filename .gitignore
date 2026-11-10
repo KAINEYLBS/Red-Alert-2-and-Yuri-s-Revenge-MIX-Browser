@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+/build/
+/.pyinstaller-work/
+/.release-cache/
+/.runtime/
+/dist/
+/RA2AYRCFRE.spec
+/RA2AYRMB.ini
+/palette-catalog/
+/user-palettes/
+/name-sources/
+/system-integration/

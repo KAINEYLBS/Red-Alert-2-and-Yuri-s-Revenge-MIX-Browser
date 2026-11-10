@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "status": "approved",
+  "reviewed_on": "2026-11-06",
+  "ffmpeg_runtime_version": "FFmpeg 7.1.3; Qt Multimedia 6.11.1.0; PySide6 6.11.1",
+  "license_sources": [
+    "https://ffmpeg.org/legal.html",
+    "https://github.com/FFmpeg/FFmpeg/tree/n7.1.3",
+    "https://zlib.net/fossils/zlib-1.3.1.tar.gz",
+    "https://doc.qt.io/qt-6/qtmultimedia-index.html#the-ffmpeg-backend",
+    "https://doc.qt.io/qt-6/qtmultimedia-index.html#licenses-and-attributions"
+  ],
+  "codec_configuration_reviewed": true,
+  "redistribution_obligations_reviewed": true,
+  "review_notes": "Inspected the exact Windows PySide6 6.11.1 wheel payload. avcodec-61.dll reports avcodec_license() as LGPL version 2.1 or later and avcodec_configuration() identifies the FFmpeg n7.1.3 MSVC shared-library build with zlib 1.3.1; it has no --enable-gpl or --enable-nonfree option. The FFmpeg DLL product versions are 7.1.3. The DLL import table contains no separate zlib DLL, so zlib is statically included. Qt's multimedia documentation describes dynamic linking and its permissively licensed prebuilt feature set; its current documented FFmpeg version is 9.0.1, so the installed DLL metadata and exported FFmpeg configuration, not that current version statement, determine this review. The corresponding upstream FFmpeg and zlib source archives and their license files are identified and pinned by SHA-256 in this review record; neither the source export nor package.bat downloads or includes those archives. This review records the inspected runtime build and source references but does not grant codec patent rights.",
+  "source_archives": [
+    {
+      "name": "FFmpeg n7.1.3 corresponding source",
+      "filename": "FFmpeg-n7.1.3.tar.gz",
+      "url": "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/refs/tags/n7.1.3",
+      "sha256": "e0b04c4b43d7e6d67cb6710334fb513adf13ac860532f30e1d0ac4c231f232fb",
+      "license_files": [
+        {
+          "archive_path": "FFmpeg-n7.1.3/COPYING.LGPLv2.1",
+          "filename": "FFmpeg-COPYING.LGPLv2.1",
+          "sha256": "b634ab5640e258563c536e658cad87080553df6f34f62269a21d554844e58bfe"
+        }
+      ]
+    },
+    {
+      "name": "zlib 1.3.1 static dependency source",
+      "filename": "zlib-1.3.1.tar.gz",
+      "url": "https://zlib.net/fossils/zlib-1.3.1.tar.gz",
+      "sha256": "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
+      "license_files": [
+        {
+          "archive_path": "zlib-1.3.1/LICENSE",
+          "filename": "zlib-LICENSE.txt",
+          "sha256": "845efc77857d485d91fb3e0b884aaa929368c717ae8186b66fe1ed2495753243"
+        }
+      ]
+    }
+  ],
+  "binaries_sha256": {
+    "avcodec-61.dll": "a3127f36742b58827411a561489505e38a8ccbcc6a3bc2f1ee58abfe700ced15",
+    "avformat-61.dll": "bbacff3524c192eaf129dd6f838c0eee65abe56fe5109b9bede839a0823f8fa3",
+    "avutil-59.dll": "615df5bb9903887b6f56a47f17fc169cd42753b9b9db7f162c74731c45612df6",
+    "plugins/multimedia/ffmpegmediaplugin.dll": "049c84e9f2c253f0aaa43f035002ac76b3fe59fc8d42c3d3015e2416bf6b4f5f",
+    "swresample-5.dll": "878e0fbf647dc8e6becb32dc031701b19dac8c9867192d571f0d72d02842f7ed",
+    "swscale-8.dll": "2f21c52fd2eb73484b448666903c5eee1b4948d28239cb18d93428a989ed3ecc"
+  }
+}
