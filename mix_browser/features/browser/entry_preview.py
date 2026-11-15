@@ -668,6 +668,7 @@ class EntryPreviewPane(QWidget):
         self._is_active = False
         self._resume_animation_on_activate = False
         self._resume_media_on_activate = False
+        self._media_started = False
         self._default_fit_pending = False
         self._default_fit_scheduled = False
         self._scrubbing = False
@@ -838,6 +839,7 @@ class EntryPreviewPane(QWidget):
         self._media_player.playback_state_changed.connect(self._sync_vlc_media_controls)
         self._media_player.position_changed.connect(self._sync_media_position)
         self._media_player.duration_changed.connect(self._sync_media_duration)
+        self._media_player.media_ready_changed.connect(self._on_media_ready_changed)
         self._media_player.error_occurred.connect(self._on_vlc_media_error)
         self._media_placeholder = QLabel("", self._media_page)
         self._media_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -901,9 +903,6 @@ class EntryPreviewPane(QWidget):
         self._animation_timer = QTimer(self)
         self._animation_timer.setInterval(100)
         self._animation_timer.timeout.connect(self._advance_frame)
-
-    def prepare_media_runtime(self) -> bool:
-        return self._media_player.prepare_runtime()
 
     @staticmethod
     def _message_page(text: str) -> QLabel:
@@ -1005,10 +1004,13 @@ class EntryPreviewPane(QWidget):
             auto_play_media = (
                 self._auto_play_video if result.is_video else self._auto_play_audio
             )
-            if auto_play_media and self._media_play.isEnabled():
-                if self._is_active:
-                    self._play_media()
-                else:
+            if auto_play_media:
+                if self._media_play.isEnabled():
+                    if self._is_active:
+                        self._play_media()
+                    else:
+                        self._resume_media_on_activate = True
+                elif self._media_player.has_pending_media:
                     self._resume_media_on_activate = True
             return None
         self._message.setText(self.tr("Preview is not available for this entry."))
@@ -1101,7 +1103,13 @@ class EntryPreviewPane(QWidget):
             if self._resume_animation_on_activate:
                 self._animation_timer.stop()
                 self._play_button.setText(self.tr("Play"))
-            self._resume_media_on_activate = self._media_is_playing()
+            self._resume_media_on_activate = (
+                self._media_is_playing()
+                or (
+                    self._resume_media_on_activate
+                    and self._media_player.has_pending_media
+                )
+            )
             if self._resume_media_on_activate:
                 self._pause_media()
             return
@@ -1116,11 +1124,14 @@ class EntryPreviewPane(QWidget):
             self._play_button.setText(self.tr("Pause"))
         self._resume_animation_on_activate = False
         if self._resume_media_on_activate and self._media_play.isEnabled():
+            self._resume_media_on_activate = False
             self._play_media()
-        self._resume_media_on_activate = False
 
     def show_document(self, result, encoding: str) -> DecodedDocument:
         return self._document.show_result(result, encoding)
+
+    def prepare_video_surface(self) -> None:
+        self._media_player.prepare_video_surface()
 
     def _prepare_image(self, result: EntryPreviewResult) -> None:
         self._frame_index = 0
@@ -1585,7 +1596,10 @@ class EntryPreviewPane(QWidget):
                 result is not None
                 and result.kind == "media"
                 and result.is_video == is_video
-                and self._media_play.isEnabled()
+                and (
+                    self._media_play.isEnabled()
+                    or self._media_player.has_pending_media
+                )
             ):
                 if enabled:
                     if self._is_active:
@@ -1609,6 +1623,7 @@ class EntryPreviewPane(QWidget):
         self._refresh_image()
 
     def _prepare_media(self, result: EntryPreviewResult) -> None:
+        self._media_started = False
         self._media_placeholder.clear()
         self._media_player.setVisible(result.is_video)
         self._media_placeholder.setVisible(not result.is_video)
@@ -1626,12 +1641,29 @@ class EntryPreviewPane(QWidget):
         self._position.setRange(0, 0)
         self._time.setText(self.tr("00:00 / 00:00"))
         self._media_play.setEnabled(False)
-        self._media_play.setEnabled(
-            self._media_player.set_media_data(
-                result.media_data,
-                result.media_suffix or (".bik" if result.is_video else ".wav"),
-            )
+        ready = self._media_player.set_media_data(
+            result.media_data,
+            result.media_suffix or (".bik" if result.is_video else ".wav"),
         )
+        self._media_play.setEnabled(ready)
+        if ready:
+            if result.is_video:
+                self._show_video_ready_prompt()
+            else:
+                self._media_player.hide()
+                self._media_placeholder.setText(self.tr("WAV audio"))
+                self._media_placeholder.show()
+        elif self._media_player.has_pending_media:
+            self._media_player.hide()
+            self._media_placeholder.setText(self.tr("Preparing media playback..."))
+            self._media_placeholder.show()
+
+    def _show_video_ready_prompt(self) -> None:
+        self._media_player.hide()
+        self._media_placeholder.setText(
+            self.tr("Click Play to start the video preview.")
+        )
+        self._media_placeholder.show()
 
     def _reset_media(self) -> None:
         self._animation_timer.stop()
@@ -1640,6 +1672,8 @@ class EntryPreviewPane(QWidget):
         self._default_fit_pending = False
         self._resume_animation_on_activate = False
         self._resume_media_on_activate = False
+        self._media_started = False
+        self._media_play.setEnabled(False)
         self._media_player.stop()
 
     def shutdown(self) -> None:
@@ -1658,6 +1692,16 @@ class EntryPreviewPane(QWidget):
         return self._media_player.is_playing
 
     def _play_media(self) -> None:
+        if self._media_player.has_pending_media:
+            self._resume_media_on_activate = True
+            return
+        if not self._media_play.isEnabled():
+            return
+        result = self._result
+        if result is not None and result.is_video:
+            self._media_started = True
+            self._media_placeholder.hide()
+            self._media_player.show()
         self._media_player.play()
 
     def _pause_media(self) -> None:
@@ -1667,6 +1711,27 @@ class EntryPreviewPane(QWidget):
         self._media_play.setText(
             self.tr("Pause") if playing else self.tr("Play")
         )
+
+    def _on_media_ready_changed(self, ready: bool) -> None:
+        self._media_play.setEnabled(ready)
+        if not ready:
+            return
+        result = self._result
+        if result is None or result.kind != "media":
+            return
+        if result.is_video:
+            if self._media_started:
+                self._media_player.show()
+                self._media_placeholder.hide()
+            else:
+                self._show_video_ready_prompt()
+        else:
+            self._media_player.hide()
+            self._media_placeholder.setText(self.tr("WAV audio"))
+            self._media_placeholder.show()
+        if self._resume_media_on_activate and self._is_active:
+            self._resume_media_on_activate = False
+            self._play_media()
 
     def _sync_media_position(self, position: int) -> None:
         if not self._scrubbing:
@@ -1702,6 +1767,9 @@ class EntryPreviewPane(QWidget):
         return f"{seconds // 60:02d}:{seconds % 60:02d}"
 
     def _on_vlc_media_error(self, message: str) -> None:
+        self._media_started = False
+        self._media_play.setEnabled(False)
+        self._resume_media_on_activate = False
         self._media_player.hide()
         self._media_placeholder.setText(message)
         self._media_placeholder.setVisible(True)

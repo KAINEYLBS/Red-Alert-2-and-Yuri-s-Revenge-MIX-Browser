@@ -135,6 +135,12 @@ if not exist "dist\RA2AYRMB\RA2AYRMB.exe" (
     goto :finish
 )
 
+if not exist "dist\RA2AYRMB\_internal\PySide6\plugins\styles\qmodernwindowsstyle.dll" (
+    echo Packaging omitted the Qt Windows 11 style plugin required to match source UI rendering.
+    set "EXIT_CODE=1"
+    goto :finish
+)
+
 set "VLC_DIST=%~dp0dist\RA2AYRMB\vlc"
 set "VLC_COPY_SCRIPT=%~dp0tools\copy_vlc_runtime.ps1"
 "%POWERSHELL%" -NoProfile -ExecutionPolicy Bypass -File "%VLC_COPY_SCRIPT%" -Source "%VLC_RUNTIME%" -Destination "%VLC_DIST%"
@@ -146,6 +152,7 @@ if not exist "%VLC_DIST%\plugins\codec\libaraw_plugin.dll" goto :vlc_copy_failed
 if not exist "%VLC_DIST%\plugins\demux\libwav_plugin.dll" goto :vlc_copy_failed
 if not exist "%VLC_DIST%\plugins\audio_filter\libaudio_format_plugin.dll" goto :vlc_copy_failed
 if not exist "%VLC_DIST%\plugins\audio_filter\libtrivial_channel_mixer_plugin.dll" goto :vlc_copy_failed
+if not exist "%VLC_DIST%\plugins\plugins.dat" goto :vlc_copy_failed
 
 set "LICENSE_ROOT=dist\RA2AYRMB\licenses"
 if not exist "%LICENSE_ROOT%" mkdir "%LICENSE_ROOT%"

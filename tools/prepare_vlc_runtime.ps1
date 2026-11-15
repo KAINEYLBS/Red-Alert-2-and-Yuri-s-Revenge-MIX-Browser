@@ -36,4 +36,19 @@ if (Test-Path -LiteralPath $target) {
     }
     Move-Item -LiteralPath $runtimeExtractionDirectory -Destination $target
 }
+
+$cacheGenerator = Join-Path $target "vlc-cache-gen.exe"
+$pluginDirectory = Join-Path $target "plugins"
+if (-not (Test-Path -LiteralPath $cacheGenerator -PathType Leaf)) {
+    throw "The VLC plugin cache generator is missing: $cacheGenerator"
+}
+Write-Host "Generating the VLC plugin cache..."
+& $cacheGenerator $pluginDirectory
+if ($LASTEXITCODE -ne 0) {
+    throw "VLC plugin cache generation failed with exit code $LASTEXITCODE."
+}
+$pluginCache = Join-Path $pluginDirectory "plugins.dat"
+if (-not (Test-Path -LiteralPath $pluginCache -PathType Leaf) -or (Get-Item -LiteralPath $pluginCache).Length -le 24) {
+    throw "VLC plugin cache generation did not produce a populated cache: $pluginCache"
+}
 Write-Host "VLC $version runtime prepared at .runtime\vlc."

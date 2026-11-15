@@ -13,13 +13,13 @@ The browser can use the bundled XCC name source and an optional CnCNet community
 
 ## Community Global MIX Database Update
 
-- Downloaded file: `name-sources/community/global_mix_database.dat.zip` beside the application
+- Downloaded file: `user-data/name-sources/community/global_mix_database.dat.zip` beside the application
 - Original attachment: [`global_mix_database.dat.zip`](https://forums.cncnet.org/applications/core/interface/file/attachment.php?id=40719)
 - Forum post: [updated global mix database](https://forums.cncnet.org/topic/2286-updated-global-mix-database/)
 - Contributor: Blade, CnCNet Community Forums
 - Database timestamp: 2015-04-13
-- The database is not included in application releases. A user can request a direct download from the CnCNet attachment in Preferences; the validated archive is stored beside the application and only enabled as a name source after download.
+- The database is not included in application releases. A user can request a direct download from the CnCNet attachment in Preferences; the validated archive is stored in the portable `user-data` folder and only enabled as a name source after download. If the in-app download fails, use the attachment link next to the download button, then place the ZIP at `user-data/name-sources/community/global_mix_database.dat.zip` and restart the app.
 - The community source is disabled by default. CLI and MCP can request the same download through `mix-browser-cli name-source download-community` and the `download_community_name_database` tool. Both use the archive application API; neither starts a download automatically. Pass `--community-names` to enable the downloaded source for CLI or MCP.
 - The archive contains four groups in order: TD (`Database 1`), RA (`Database 2`), TS (`Database 3`), and RA2/YR (`Database 4`). The Game menu selects the group used for name inference. The post and attachment do not state a separate license. Attribution records the source and contributor, but does not itself grant permission. The download flow avoids redistributing the community archive with the application; it does not establish a license for other redistribution or use.
 
-The old `known_resource_names.json` corpus has been removed. Names discovered beside the archive and in embedded local MIX databases remain available regardless of these source settings.
+The old `known_resource_names.json` corpus has been removed. Names from the opened MIX's embedded local database and names learned from other MIX archives opened during the current application session remain available regardless of these source settings. The application does not search the opened MIX's containing directory for name data.

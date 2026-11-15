@@ -5,10 +5,14 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from PySide6.QtCore import QCoreApplication, QProcess, QTimer
+from PySide6.QtCore import QProcess, QTimer
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 
+from mix_browser.features.browser.vlc_video_player import (
+    prepare_vlc_runtime,
+    shutdown_vlc_runtime,
+)
 from mix_browser.features.system_integration.api import (
     SystemIntegrationApplication,
     desktop_launch_command,
@@ -26,11 +30,7 @@ from mix_browser.shared.application_settings import create_application_settings
 from mix_browser.shared.application_style import apply_application_style
 from mix_browser.shared.interaction_help import InteractionHelpCatalog
 from mix_browser.shared.localization import install_translations
-from mix_browser.shared.task_progress_dialog import (
-    ProgressMode,
-    TaskProgressController,
-    TaskProgressDialog,
-)
+from mix_browser.shared.task_progress_dialog import TaskProgressController
 
 
 def _center_window_on_primary_screen(window: QWidget) -> None:
@@ -92,6 +92,7 @@ def run() -> int:
         max_workers=1,
         thread_name_prefix="mix-browser-startup",
     )
+    startup_executor.submit(prepare_vlc_runtime)
     temporary_directory = TemporaryDirectory(
         prefix="mix-browser-",
         ignore_cleanup_errors=True,
@@ -114,54 +115,19 @@ def run() -> int:
         window.restart_requested.connect(lambda: _restart_desktop_application(window))
         window.resize(1200, 680)
         _center_window_on_primary_screen(window)
-        startup_progress = TaskProgressDialog(
-            progress_controller,
-            QCoreApplication.translate("TaskProgressDialog", "Preparing Preview"),
-            QCoreApplication.translate(
-                "TaskProgressDialog",
-                "Initializing preview and media playback...",
-            ),
-            mode=ProgressMode.INDETERMINATE,
-            cancel_callback=lambda: None,
-            cancelable=False,
-            parent=window,
-        )
-        startup_completed = False
-
-        def complete_startup() -> None:
-            nonlocal startup_completed
-            if startup_completed:
-                return
-            startup_completed = True
-            try:
-                window.preload_entry_preview()
-            except Exception as exc:
-                startup_progress.finish()
-                QMessageBox.critical(
-                    None,
-                    QCoreApplication.translate(
-                        "TaskProgressDialog",
-                        "Preview Initialization Failed",
-                    ),
-                    str(exc),
-                )
-                application.quit()
-                return
-            window.show()
-            startup_progress.finish()
-            QTimer.singleShot(600, window.start_deferred_startup_work)
-            QTimer.singleShot(180, window.prompt_missing_game_directory)
-            if startup_paths:
-                QTimer.singleShot(220, lambda: window.open_paths(startup_paths))
-
-        startup_progress.shown.connect(complete_startup)
-        startup_progress.helper_unavailable.connect(complete_startup)
-        startup_progress.show()
-        QTimer.singleShot(5000, complete_startup)
+        window.show()
+        QTimer.singleShot(600, window.start_deferred_startup_work)
+        QTimer.singleShot(1200, window.prompt_missing_game_directory)
+        if startup_paths:
+            QTimer.singleShot(220, lambda: window.open_paths(startup_paths))
+            QTimer.singleShot(260, window.show_startup_version_updates)
+        else:
+            QTimer.singleShot(100, window.show_startup_version_updates)
         return application.exec()
     finally:
         startup_executor.shutdown(wait=True, cancel_futures=True)
         task_executor.shutdown(wait=True, cancel_futures=True)
+        shutdown_vlc_runtime()
         progress_controller.shutdown()
         temporary_directory.cleanup()
 

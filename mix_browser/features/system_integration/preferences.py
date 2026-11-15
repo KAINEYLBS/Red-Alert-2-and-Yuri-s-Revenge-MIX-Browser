@@ -270,7 +270,7 @@ class SystemIntegrationSettingsPage(QWidget):
             )
         if is_registered:
             return self.tr(
-                "{0} is available for {1}; Windows uses another default or asks."
+                "{0} is registered as a handler for {1}; Windows manages the default app."
             ).format(APPLICATION_DISPLAY_NAME, extension)
         return self.tr("Windows controls which application opens {0}.").format(
             extension

@@ -39,6 +39,20 @@ foreach ($line in Get-Content -LiteralPath $pluginManifest) {
     Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Force
 }
 
+$cacheGenerator = Join-Path $sourceRoot "vlc-cache-gen.exe"
+if (-not (Test-Path -LiteralPath $cacheGenerator -PathType Leaf)) {
+    throw "The VLC plugin cache generator is missing: $cacheGenerator"
+}
+Write-Host "Generating the VLC plugin cache for the packaged plugin set..."
+& $cacheGenerator $destinationPlugins
+if ($LASTEXITCODE -ne 0) {
+    throw "VLC plugin cache generation failed with exit code $LASTEXITCODE."
+}
+$pluginCache = Join-Path $destinationPlugins "plugins.dat"
+if (-not (Test-Path -LiteralPath $pluginCache -PathType Leaf) -or (Get-Item -LiteralPath $pluginCache).Length -le 24) {
+    throw "VLC plugin cache generation did not produce a populated cache: $pluginCache"
+}
+
 $copiedPluginCount = (Get-Content -LiteralPath $pluginManifest | Where-Object {
     $_.Trim() -and -not $_.Trim().StartsWith("#")
 }).Count

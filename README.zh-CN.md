@@ -2,7 +2,7 @@
 
 **Red Alert 2 and Yuri's Revenge MIX Browser** 是一款桌面应用，用于浏览和管理 Westwood MIX 归档，以及普通游戏文件和文件夹。
 
-版本：**1.0.0 beta 1**
+版本：**1.0.0**
 
 README： [English](README.md) | 简体中文  
 界面语言：英语、简体中文
@@ -40,6 +40,27 @@ README： [English](README.md) | 简体中文
 
 程序不会附带游戏文件。在 **编辑 > 首选项 > 色盘来源** 中选择现有 RA2/YR 游戏目录，可在预览时使用其中的色盘和 Art 规则。游戏目录作为设置保存，游戏文件会在原位置读取。
 
+## 用户资料
+
+可执行文件旁的便携式 `user-data` 文件夹用于存放用户专属数据：
+
+- `RA2AYRMB.ini`：首选项和启动选项。
+- `user-palettes/`：导入的 PAL 文件和自定义色盘规则。
+- `name-sources/community/`：按需下载的社区数据库。
+- `system-integration/default-app-samples/`：Windows 默认应用选择流程使用的常驻样例。
+- `cache/palette-catalog/`：为已配置的游戏目录生成的色盘和 Art 规则缓存，可删除并重新生成。
+
+程序只从 `user-data/` 读取用户资料，不会自动从可执行文件目录导入旧文件。若要从 1.0.0 beta 1 或更早版本迁移，请在首次启动前，将旧可执行文件目录中的项目复制到新可执行文件目录：
+
+- `RA2AYRMB.ini` 复制到 `user-data/RA2AYRMB.ini`。
+- `user-palettes/` 复制到 `user-data/user-palettes/`。
+- `name-sources/` 复制到 `user-data/name-sources/`。
+- `system-integration/` 复制到 `user-data/system-integration/`。
+
+以后更新时，把整个 `user-data/` 文件夹复制到新可执行文件旁即可。Windows 资源管理器注册信息单独保存在当前用户的注册表中；如果可执行文件位置改变，请到 **首选项 > 系统集成** 重新注册。
+
+如果程序内下载社区数据库失败，点击下载按钮旁的超链接获取 `global_mix_database.dat.zip`。将文件复制到可执行文件旁的 `user-data/name-sources/community/global_mix_database.dat.zip`；如有需要请创建目录，然后重启 RA2AYRMB。
+
 ## 从源码运行
 
 要求：Python 3.10 或更高版本。受支持的 Windows 桌面版本需要 Windows 10 或更高版本。在 Windows 上创建虚拟环境并安装项目：
@@ -71,7 +92,7 @@ tools\prepare_vlc_runtime.bat
 package.bat
 ```
 
-打包结果位于 `dist/RA2AYRMB/RA2AYRMB.exe`。设置、导入的色盘，以及用户选择下载的社区数据库保存在可执行文件旁。
+打包结果位于 `dist/RA2AYRMB/RA2AYRMB.exe`。设置、导入的色盘，以及用户选择下载的社区数据库保存在 `dist/RA2AYRMB/user-data/` 中。
 
 ## CLI
 

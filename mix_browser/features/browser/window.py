@@ -71,6 +71,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from mix_browser import __version__
 from mix_browser.features.archive.domain import (
     MixArchiveIndex,
     MixArchiveParent,
@@ -106,6 +107,7 @@ from mix_browser.features.archive.writer import (
     write_back_mix_entry,
 )
 from mix_browser.features.browser.about_dialog import AboutDialog
+from mix_browser.features.browser.version_updates_dialog import VersionUpdatesDialog
 from mix_browser.features.browser.api import MixBrowserFeatureApplication
 from mix_browser.features.browser.asset_preview import (
     EntryPreviewResult,
@@ -130,6 +132,7 @@ from mix_browser.features.browser.file_type_support import (
     CONFIGURABLE_BROWSER_TYPE_FILTERS,
     DEFAULT_VISIBLE_BROWSER_TYPE_FILTERS,
     OTHER_FILE_TYPE_FILTER,
+    is_previewable_file_name,
 )
 from mix_browser.features.browser.recursive_search import (
     ArchivePageLocation,
@@ -181,9 +184,11 @@ from mix_browser.shared.application_errors import ApplicationApiError
 from mix_browser.shared.application_settings import (
     application_directory,
     create_application_settings,
+    user_data_directory,
 )
 from mix_browser.shared.file_operations import replace_path_with_staged_sibling
 from mix_browser.shared.interaction_help import InteractionHelpCatalog
+from mix_browser.shared.versioning import format_display_version
 
 if TYPE_CHECKING:
     from mix_browser.features.browser.entry_preview import EntryPreviewPane
@@ -1743,7 +1748,7 @@ def _read_palette_library_setting(value: str) -> tuple[PaletteLibraryRule, ...]:
 
 # @arch mix-browser.palette-library-manifest adapter | en: Reads and writes portable user palette rules beside their palette files | zh: 在用户色盘文件旁读写可迁移的色盘规则
 def _palette_library_manifest_path() -> Path:
-    return application_directory() / "user-palettes" / "palette-library.json"
+    return user_data_directory() / "user-palettes" / "palette-library.json"
 
 
 def _read_palette_library_manifest() -> tuple[PaletteLibraryRule, ...] | None:
@@ -1816,6 +1821,8 @@ def _resolve_palette_library_path(path: Path) -> Path:
     path = path.expanduser()
     if path.is_absolute():
         return path
+    if path.parts and path.parts[0].casefold() == "user-palettes":
+        return (user_data_directory() / path).resolve()
     return (application_directory() / path).resolve()
 
 
@@ -1828,7 +1835,7 @@ def _stored_palette_library_path(path: Path) -> Path:
 
 
 def _user_palette_library_directory() -> Path:
-    directory = application_directory() / "user-palettes"
+    directory = user_data_directory() / "user-palettes"
     directory.mkdir(parents=True, exist_ok=True)
     return directory
 
@@ -1836,13 +1843,13 @@ def _user_palette_library_directory() -> Path:
 def _is_managed_user_palette_path(path: Path) -> bool:
     try:
         path = _resolve_palette_library_path(path).resolve()
-        path.relative_to((application_directory() / "user-palettes").resolve())
+        path.relative_to((user_data_directory() / "user-palettes").resolve())
         return True
     except (OSError, RuntimeError, ValueError):
         return False
 
 
-# @arch mix-browser.import-user-palette service | en: Copies a selected PAL file into the program-relative palette library | zh: 将选中的 PAL 文件复制到程序相对目录下的色盘库
+# @arch mix-browser.import-user-palette service | en: Copies a selected PAL file into the portable user-data palette library | zh: 将选中的 PAL 文件复制到便携式用户资料色盘库
 def _import_user_palette(
     source: Path,
     *,
@@ -2155,7 +2162,7 @@ class PaletteSourcesPage(QWidget):
                 self,
                 self.tr("Could Not Open Palette Folder"),
                 self.tr("The user palette storage folder could not be opened:\n{0}").format(
-                    error or str(directory or application_directory() / "user-palettes")
+                    error or str(directory or user_data_directory() / "user-palettes")
                 ),
             )
 
@@ -2649,6 +2656,12 @@ class MixBrowserWindow(QMainWindow):
         self._pending_clipboard_export_cancellation: Event | None = None
         self._startup_clipboard_cleanup_cancellation: Event | None = None
         self._deferred_startup_work_started = False
+        self._name_source_prewarm_started = False
+        self._name_source_prewarm_timer = QTimer(self)
+        self._name_source_prewarm_timer.setSingleShot(True)
+        self._name_source_prewarm_timer.timeout.connect(
+            self._prewarm_name_sources_when_idle
+        )
         self._clipboard_export_base = self._temporary_root.parent / "mix-browser-clipboard"
         self._clipboard_export_root = self._root_for_clipboard_paths(
             self._system_clipboard_paths()
@@ -2669,6 +2682,13 @@ class MixBrowserWindow(QMainWindow):
         self._preview_requests: dict[int, str] = {}
         self._preview_futures: dict[str, tuple[int, Future]] = {}
         self._preview_cancellations: dict[int, Event] = {}
+        self._pending_preview_path_key: str | None = None
+        self._pending_preview_request_id: int | None = None
+        self._pending_preview_start: Callable[[], None] | None = None
+        self._preview_start_timer = QTimer(self)
+        self._preview_start_timer.setSingleShot(True)
+        self._preview_start_timer.setInterval(75)
+        self._preview_start_timer.timeout.connect(self._start_pending_entry_preview)
         self._palette_catalog_preloads: dict[str, Future] = {}
         self._palette_catalog_cancellations: dict[str, Event] = {}
         self._palette_catalog_progress: dict[str, TaskProgressDialog] = {}
@@ -2884,23 +2904,40 @@ class MixBrowserWindow(QMainWindow):
         self.container_layout.addWidget(self.empty_state)
         self.container_layout.addWidget(self.tabs)
         self.setCentralWidget(self.container)
+        # Prepare the preview controls before the first browser page is created.
+        self._prepared_entry_preview = _create_entry_preview(self.tabs)
         self._create_split_status_bar()
         self._sync_empty_state()
         self._register_drop_targets(self)
+
+    def _take_prepared_entry_preview(self) -> EntryPreviewPane | None:
+        preview = self._prepared_entry_preview
+        self._prepared_entry_preview = None
+        return preview
 
     def start_deferred_startup_work(self) -> None:
         if self._deferred_startup_work_started:
             return
         self._deferred_startup_work_started = True
-        self._startup_executor.submit(self._archive_loader.prewarm_name_sources)
+        self._name_source_prewarm_timer.start(4000)
         self._cleanup_stale_clipboard_exports()
 
-    def preload_entry_preview(self) -> None:
-        preview = _create_entry_preview(self)
-        preview.hide()
-        preview.prepare_media_runtime()
-        preview.shutdown()
-        preview.deleteLater()
+    def _prewarm_name_sources_when_idle(self) -> None:
+        if self._name_source_prewarm_started:
+            return
+        if (
+            self._pending_paths
+            or self._directory_futures
+            or self._preview_futures
+            or self._pending_preview_start is not None
+            or self._open_progress_tasks
+            or self._progress_tasks
+            or self._palette_catalog_preloads
+        ):
+            self._name_source_prewarm_timer.start(1000)
+            return
+        self._name_source_prewarm_started = True
+        self._startup_executor.submit(self._archive_loader.prewarm_name_sources)
 
     def _create_main_menus(self) -> None:
         file_menu = self.menuBar().addMenu(self.tr("File"))
@@ -3004,6 +3041,13 @@ class MixBrowserWindow(QMainWindow):
             self,
         )
         self._about_action.triggered.connect(self._open_about)
+        self._version_updates_action = QAction(
+            self.tr("What's New in {0}...").format(
+                format_display_version(__version__)
+            ),
+            self,
+        )
+        self._version_updates_action.triggered.connect(self._open_version_updates)
         self._palette_naming_guide_action = QAction(
             self.tr("Asset Filename Guide for INI Palette References..."),
             self,
@@ -3041,6 +3085,8 @@ class MixBrowserWindow(QMainWindow):
         edit_menu.addAction(self._search_action)
         edit_menu.addSeparator()
         edit_menu.addAction(self._preferences_action)
+        help_menu.addAction(self._version_updates_action)
+        help_menu.addSeparator()
         help_menu.addAction(self._preview_support_action)
         help_menu.addAction(self._palette_naming_guide_action)
         help_menu.addSeparator()
@@ -3049,6 +3095,41 @@ class MixBrowserWindow(QMainWindow):
 
     def _open_about(self) -> None:
         AboutDialog(self).exec()
+
+    def _open_version_updates(self) -> None:
+        self._present_version_updates(
+            show_dont_show_again=self._developer_tools_enabled
+        )
+
+    def show_startup_version_updates(self) -> None:
+        dismissed_key = f"startup/versionUpdatesDismissed/{__version__}"
+        if self._settings.value(dismissed_key, False, type=bool):
+            return
+        if (
+            not self.isVisible()
+            or QApplication.activeModalWidget() is not None
+            or self._pending_paths
+            or self._directory_futures
+            or self._preview_futures
+            or self._pending_preview_start is not None
+            or self._open_progress_tasks
+            or self._progress_tasks
+            or self._palette_catalog_preloads
+        ):
+            QTimer.singleShot(500, self.show_startup_version_updates)
+            return
+        self._present_version_updates(show_dont_show_again=True)
+
+    def _present_version_updates(self, *, show_dont_show_again: bool) -> None:
+        dialog = VersionUpdatesDialog(
+            show_dont_show_again=show_dont_show_again,
+            parent=self,
+        )
+        dialog.exec()
+        if show_dont_show_again:
+            dismissed_key = f"startup/versionUpdatesDismissed/{__version__}"
+            self._settings.setValue(dismissed_key, dialog.dont_show_again)
+            self._settings.sync()
 
     def _open_preview_support(self) -> None:
         PreviewSupportDialog(self).exec()
@@ -3099,6 +3180,10 @@ class MixBrowserWindow(QMainWindow):
             False,
             type=bool,
         ):
+            return
+        active_modal = QApplication.activeModalWidget()
+        if active_modal is not None or not self.isActiveWindow():
+            QTimer.singleShot(500, self.prompt_missing_game_directory)
             return
 
         message = QMessageBox(self)
@@ -6466,12 +6551,14 @@ class MixBrowserWindow(QMainWindow):
             return
 
         title = normalized.name or str(normalized)
+        prepared_preview = self._take_prepared_entry_preview()
         page = DirectoryBrowserPage(
             normalized,
             key,
             title,
             ancestors=ancestors,
             parent=self.tabs,
+            preview=prepared_preview,
         )
         self._configure_entry_type_filters(page.entry_table)
         self._apply_auto_play_preferences(page)
@@ -6499,6 +6586,8 @@ class MixBrowserWindow(QMainWindow):
             system_icon_for_object(is_directory=True),
             title,
         )
+        if prepared_preview is not None:
+            page.preview.prepare_video_surface()
         self.tabs.setTabToolTip(index, page.location_text)
         self.tabs.setCurrentIndex(index)
         self._sync_breadcrumb_navigation()
@@ -7320,6 +7409,7 @@ class MixBrowserWindow(QMainWindow):
 
         title = display_title or archive.path.name
         page_location = location_text or str(archive.path)
+        prepared_preview = self._take_prepared_entry_preview()
         page = MixArchivePage(
             archive,
             path_key,
@@ -7327,6 +7417,7 @@ class MixBrowserWindow(QMainWindow):
             ancestors=ancestors,
             location_text=page_location,
             parent=self.tabs,
+            preview=prepared_preview,
         )
         self._configure_entry_type_filters(page.entry_table)
         self._apply_auto_play_preferences(page)
@@ -7354,6 +7445,8 @@ class MixBrowserWindow(QMainWindow):
             system_icon_for_object(is_directory=False),
             title,
         )
+        if prepared_preview is not None:
+            page.preview.prepare_video_surface()
         self.tabs.setTabToolTip(index, page.location_text)
         self._sync_empty_state()
         self.tabs.setCurrentIndex(index)
@@ -7373,9 +7466,15 @@ class MixBrowserWindow(QMainWindow):
             return
         self._cancel_entry_preview(path_key)
         if isinstance(page, MixArchivePage) and isinstance(entry, MixEntry):
+            if not is_previewable_file_name(entry.name or ""):
+                page.clear_preview()
+                return
             loader = load_entry_preview
             source = page.archive
         elif isinstance(page, DirectoryBrowserPage) and isinstance(entry, DirectoryEntry):
+            if entry.is_directory or not is_previewable_file_name(entry.path.name):
+                page.clear_preview()
+                return
             loader = load_path_preview
             source = entry.path
         else:
@@ -7389,6 +7488,44 @@ class MixBrowserWindow(QMainWindow):
         palette_context = tuple(title for _, title in page.ancestors) + (
             page.display_title,
         )
+        self._pending_preview_path_key = path_key
+        self._pending_preview_request_id = request_id
+        self._pending_preview_start = lambda: self._start_entry_preview(
+            path_key,
+            request_id,
+            loader,
+            source,
+            entry,
+            palette_context,
+        )
+        self._preview_start_timer.start()
+
+    def _start_pending_entry_preview(self) -> None:
+        start = self._pending_preview_start
+        self._pending_preview_start = None
+        self._pending_preview_path_key = None
+        self._pending_preview_request_id = None
+        if start is not None:
+            start()
+
+    def _start_entry_preview(
+        self,
+        path_key: str,
+        request_id: int,
+        loader: Callable[..., EntryPreviewResult],
+        source: MixArchiveIndex | Path,
+        entry: MixEntry | DirectoryEntry,
+        palette_context: tuple[str, ...],
+    ) -> None:
+        page = self._pages_by_path.get(path_key)
+        if (
+            page is None
+            or self.tabs.currentWidget() is not page
+            or page.current_entry() != entry
+            or self._preview_requests.get(request_id) != path_key
+        ):
+            self._preview_requests.pop(request_id, None)
+            return
         if isinstance(entry, MixEntry):
             future = self._task_executor.submit(
                 loader,
@@ -7420,9 +7557,18 @@ class MixBrowserWindow(QMainWindow):
         )
 
     def _cancel_entry_preview(self, path_key: str) -> bool:
+        cancelled_pending = False
+        if self._pending_preview_path_key == path_key:
+            self._preview_start_timer.stop()
+            if self._pending_preview_request_id is not None:
+                self._preview_requests.pop(self._pending_preview_request_id, None)
+            self._pending_preview_path_key = None
+            self._pending_preview_request_id = None
+            self._pending_preview_start = None
+            cancelled_pending = True
         pending = self._preview_futures.pop(path_key, None)
         if pending is None:
-            return False
+            return cancelled_pending
         request_id, future = pending
         self._preview_requests.pop(request_id, None)
         cancellation_event = self._preview_cancellations.pop(request_id, None)
@@ -8387,6 +8533,10 @@ class MixBrowserWindow(QMainWindow):
                 page.entry_table.cancel_pending_drag()
         for cancellation_event in self._preview_cancellations.values():
             cancellation_event.set()
+        self._preview_start_timer.stop()
+        self._pending_preview_path_key = None
+        self._pending_preview_request_id = None
+        self._pending_preview_start = None
         for _, future in self._preview_futures.values():
             future.cancel()
         self._preview_requests.clear()
@@ -8394,6 +8544,8 @@ class MixBrowserWindow(QMainWindow):
         self._preview_cancellations.clear()
         for page in self._pages_by_path.values():
             page.preview.shutdown()
+        if self._prepared_entry_preview is not None:
+            self._prepared_entry_preview.shutdown()
         self._remove_external_file_watches()
         super().closeEvent(event)
 

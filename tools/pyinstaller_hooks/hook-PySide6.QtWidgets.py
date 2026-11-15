@@ -1,5 +1,14 @@
+from pathlib import Path
+
 from PyInstaller.utils.hooks.qt import add_qt6_dependencies
 
 
 hiddenimports, binaries, datas = add_qt6_dependencies(__file__)
-binaries = []
+binaries = [
+    (source, destination)
+    for source, destination in binaries
+    if (
+        Path(source).name.casefold() == "qmodernwindowsstyle.dll"
+        and Path(source).parent.name.casefold() == "styles"
+    )
+]

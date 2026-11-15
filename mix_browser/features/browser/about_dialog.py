@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QSize, Qt
@@ -21,6 +20,7 @@ from mix_browser.shared.application_identity import (
     APPLICATION_FULL_NAME,
     GITHUB_PROJECT_URL,
 )
+from mix_browser.shared.versioning import format_display_version
 
 
 # @arch mix-browser.about-dialog component | en: Presents application identity, implementation technologies, and supported interfaces | zh: 展示程序信息、实现技术与支持的接口
@@ -48,16 +48,8 @@ class AboutDialog(QDialog):
         identity_layout.addWidget(name, 1)
         layout.addLayout(identity_layout)
 
-        version = re.fullmatch(r"(\d+(?:\.\d+)*)b(\d+)", __version__)
-        if version:
-            beta_number = int(version.group(2))
-            version_text = f"{version.group(1)} beta"
-            if beta_number:
-                version_text = f"{version_text} {beta_number}"
-        else:
-            version_text = __version__
         version_label = QLabel(
-            self.tr("Version: {0}").format(version_text),
+            self.tr("Version: {0}").format(format_display_version(__version__)),
             self,
         )
         license_label = QLabel(self.tr("License: MIT"), self)

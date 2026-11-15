@@ -17,7 +17,7 @@ from mix_browser.features.archive.domain import (
     _prewarm_mix_file_hashes,
 )
 from mix_browser.features.archive.dat_format import parse_xcc_dat_contents
-from mix_browser.shared.application_settings import application_directory
+from mix_browser.shared.application_settings import user_data_directory
 
 
 _MAX_CANDIDATE_NAMES = 100_000
@@ -64,9 +64,9 @@ _XCC_NAME_LIST_PATHS = {
 XCC_NAME_GAME_KEYS = frozenset(_XCC_NAME_LIST_PATHS)
 
 
-# @arch mix-browser.community-name-database-path utility | en: Resolves the optional community database location beside the application | zh: 解析程序目录旁可选社区数据库的存储位置
+# @arch mix-browser.community-name-database-path utility | en: Resolves the optional community database location inside portable user data | zh: 解析便携式用户资料目录内可选社区数据库的存储位置
 def community_name_database_path() -> Path:
-    return application_directory() / _COMMUNITY_DATABASE_RELATIVE_PATH
+    return user_data_directory() / _COMMUNITY_DATABASE_RELATIVE_PATH
 
 
 # @arch mix-browser.community-name-database-size service | en: Reads the remote CnCNet attachment size without downloading its content | zh: 读取 CnCNet 远程附件大小而不下载文件内容

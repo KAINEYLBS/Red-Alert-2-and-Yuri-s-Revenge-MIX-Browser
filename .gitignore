@@ -10,6 +10,8 @@ __pycache__/
 /dist/
 /RA2AYRCFRE.spec
 /RA2AYRMB.ini
+/user-data/
+# Ignore palette cache files created by older versions in the application root.
 /palette-catalog/
 /user-palettes/
 /name-sources/

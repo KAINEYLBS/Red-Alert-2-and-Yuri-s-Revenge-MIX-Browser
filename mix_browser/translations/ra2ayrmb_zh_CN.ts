@@ -990,6 +990,15 @@ CLI 和 MCP 提供目录与 MIX 操作、递归搜索、类型识别及受支持
         <translation>WAV 音频</translation>
     </message>
     <message>
+        <location filename="../features/browser/entry_preview.py" line="1643"/>
+        <source>Preparing media playback...</source>
+        <translation>正在准备媒体播放...</translation>
+    </message>
+    <message>
+        <source>Click Play to start the video preview.</source>
+        <translation>点击“播放”开始预览视频。</translation>
+    </message>
+    <message>
         <location filename="../features/browser/entry_preview.py" line="1486"/>
         <source>The media stream could not be opened.</source>
         <translation>无法打开媒体流。</translation>
@@ -1373,6 +1382,10 @@ CLI 和 MCP 提供目录与 MIX 操作、递归搜索、类型识别及受支持
         <location filename="../features/browser/window.py" line="2298"/>
         <source>About {0}...</source>
         <translation>关于 {0}...</translation>
+    </message>
+    <message>
+        <source>What's New in {0}...</source>
+        <translation>查看 {0} 更新...</translation>
     </message>
     <message>
         <location filename="../features/browser/window.py" line="2350"/>
@@ -3667,8 +3680,8 @@ lib.pal&lt;/pre&gt;
         <translation>当前 {1} 的默认应用为 {0}。</translation>
     </message>
     <message>
-        <source>{0} is available for {1}; Windows uses another default or asks.</source>
-        <translation>{0} 已注册为 {1} 处理程序；Windows 将使用其他默认应用或进行询问。</translation>
+        <source>{0} is registered as a handler for {1}; Windows manages the default app.</source>
+        <translation>{0} 已注册为 {1} 文件处理程序；默认应用由 Windows 管理。</translation>
     </message>
     <message>
         <source>Windows controls which application opens {0}.</source>
@@ -3831,21 +3844,6 @@ lib.pal&lt;/pre&gt;
         <location filename="../shared/task_progress_dialog.py" line="134"/>
         <source>Starting...</source>
         <translation>正在启动...</translation>
-    </message>
-    <message>
-        <location filename="../app/application.py" line="120"/>
-        <source>Preparing Preview</source>
-        <translation>正在准备预览</translation>
-    </message>
-    <message>
-        <location filename="../app/application.py" line="121"/>
-        <source>Initializing preview and media playback...</source>
-        <translation>正在初始化预览和媒体播放...</translation>
-    </message>
-    <message>
-        <location filename="../app/application.py" line="143"/>
-        <source>Preview Initialization Failed</source>
-        <translation>预览初始化失败</translation>
     </message>
     <message>
         <location filename="../shared/task_progress_dialog.py" line="136"/>
@@ -4093,6 +4091,89 @@ lib.pal&lt;/pre&gt;
     <message>
         <source>The bundled VLC runtime could not initialize media playback.</source>
         <translation>随程序提供的 VLC 运行时无法初始化媒体播放。</translation>
+    </message>
+</context>
+<context>
+    <name>VersionUpdatesDialog</name>
+    <message>
+        <source>Version Updates</source>
+        <translation>版本更新</translation>
+    </message>
+    <message>
+        <source>What's new in {0}</source>
+        <translation>{0} 更新内容</translation>
+    </message>
+    <message>
+        <source>Changes since {0}</source>
+        <translation>自 {0} 以来的更新</translation>
+    </message>
+    <message>
+        <source>Removed redundant output-device re-detection during VLC playback, fixing the audio dropouts caused by that logic while still following the system's active output device.</source>
+        <translation>移除了 VLC 播放期间多余的输出设备重新判定逻辑，修复了该逻辑导致的音频丢失，同时仍会跟随 Windows 当前活动的输出设备。</translation>
+    </message>
+    <message>
+        <source>Fixed seeking and resuming audio or video previews after playback ends.</source>
+        <translation>修复音频或视频播放结束后拖动进度条无法继续播放的问题。</translation>
+    </message>
+    <message>
+        <source>With external output devices, playback may still lose its opening audio segment; uninterrupted playback is unaffected.</source>
+        <translation>使用外接输出设备时，播放开始仍可能丢失开头片段；连续播放不会出现此问题。</translation>
+    </message>
+    <message>
+        <source>Only supported file types are previewed; rapid selection changes wait briefly before starting a preview, keeping file switching responsive.</source>
+        <translation>仅对支持的文件类型加载预览；快速切换时会稍候再启动预览，以保持文件切换流畅。</translation>
+    </message>
+    <message>
+        <source>Video previews now distinguish media preparation from a ready video that has not started playing.</source>
+        <translation>视频预览现在会区分媒体准备中与已就绪但尚未开始播放的状态。</translation>
+    </message>
+    <message>
+        <source>Startup and first folder or MIX opening are faster; the preview surface is prepared before the first browser tab.</source>
+        <translation>启动以及首次打开文件夹或 MIX 更快；首个浏览标签页创建前会准备好预览区域。</translation>
+    </message>
+    <message>
+        <source>Fixed inconsistent widget styling between source and packaged builds, and corrected rounded corners in progress windows.</source>
+        <translation>修复源码运行版与打包版的控件样式不一致问题，并修正进度窗口圆角显示。</translation>
+    </message>
+    <message>
+        <source>Windows file-handler status messages are clearer.</source>
+        <translation>改进了 Windows 文件处理程序状态提示。</translation>
+    </message>
+    <message>
+        <source>Preferences, imported palettes, the optional community database, and persistent default-app samples now live under the portable user-data folder beside the executable.</source>
+        <translation>首选项、导入的色盘、可选社区数据库和常驻默认应用样例现在统一存放在可执行文件旁的便携式 user-data 文件夹中。</translation>
+    </message>
+    <message>
+        <source>Version 1.0.0 reads data only from user-data and does not import older files automatically. Before first launch, copy these items from beside the old executable to beside the new executable: RA2AYRMB.ini -&gt; user-data/RA2AYRMB.ini; user-palettes/ -&gt; user-data/user-palettes/; name-sources/ -&gt; user-data/name-sources/; system-integration/ -&gt; user-data/system-integration/. For future updates, copy the entire user-data/ folder.</source>
+        <translation>1.0.0 只从 user-data 读取资料，不会自动导入旧文件。首次启动前，请将旧可执行文件目录中的项目复制到新可执行文件目录：RA2AYRMB.ini → user-data/RA2AYRMB.ini；user-palettes/ → user-data/user-palettes/；name-sources/ → user-data/name-sources/；system-integration/ → user-data/system-integration/。以后更新时复制整个 user-data/ 文件夹即可。</translation>
+    </message>
+    <message>
+        <source>Don't show this window automatically again for this version</source>
+        <translation>本版本不再自动弹出此窗口</translation>
+    </message>
+    <message>
+        <source>Release history...</source>
+        <translation>历史更新...</translation>
+    </message>
+    <message>
+        <source>Release history</source>
+        <translation>历史更新</translation>
+    </message>
+    <message>
+        <source>Back to latest</source>
+        <translation>返回最新版本</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <source>Changes from {0} to {1}</source>
+        <translation>从 {0} 到 {1} 的更新</translation>
+    </message>
+    <message>
+        <source>Resolved some issues.</source>
+        <translation>解决了一些问题。</translation>
     </message>
 </context>
 <context>

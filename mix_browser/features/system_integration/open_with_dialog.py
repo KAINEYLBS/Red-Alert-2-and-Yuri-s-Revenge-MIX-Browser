@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from mix_browser.features.archive.type_detection import MIX_CONTAINER_SUFFIXES
-from mix_browser.shared.application_settings import application_directory
+from mix_browser.shared.application_settings import user_data_directory
 
 _CONTAINER_PROBE_NAME = "ra2ayrmb-association-probe"
 
@@ -47,7 +47,7 @@ def cleanup_container_association_probe(path: Path) -> None:
 
 
 def _container_association_probe_directory() -> Path:
-    return application_directory() / "system-integration" / "default-app-samples"
+    return user_data_directory() / "system-integration" / "default-app-samples"
 
 
 def _container_association_probe_result_path(path: Path) -> Path:

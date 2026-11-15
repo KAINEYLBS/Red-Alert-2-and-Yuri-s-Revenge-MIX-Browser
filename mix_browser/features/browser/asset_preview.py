@@ -34,7 +34,7 @@ from mix_browser.features.archive.domain import (
 )
 from mix_browser.features.archive.loader import MixArchiveLoader
 from mix_browser.features.archive.type_detection import detect_content_type
-from mix_browser.shared.application_settings import application_directory
+from mix_browser.shared.application_settings import user_data_directory
 from mix_browser.features.browser.document_data import (
     DocumentPreviewResult,
     load_document_preview,
@@ -46,6 +46,7 @@ from mix_browser.features.browser.file_type_support import (
     MAX_IMAGE_PREVIEW_BYTES as _MAX_IMAGE_BYTES,
     MAX_IMAGE_PREVIEW_PIXELS as _MAX_IMAGE_PIXELS,
     MAX_MEDIA_PREVIEW_BYTES as _MAX_MEDIA_BYTES,
+    is_previewable_file_name,
 )
 
 
@@ -288,6 +289,15 @@ def load_entry_preview(
     include_game_palettes: bool = True,
     palette_context: tuple[str, ...] = (),
 ) -> EntryPreviewResult:
+    if not is_previewable_file_name(entry.name or ""):
+        return EntryPreviewResult(
+            "message",
+            message=QCoreApplication.translate(
+                "DocumentPreviewPane",
+                "Document preview is not available for this file type.",
+            ),
+        )
+
     suffix = Path(entry.name or "").suffix.casefold()
     file_type = (entry.file_type or "").casefold()
     asset_type = suffix[1:] if suffix in _DIRECT_PREVIEW_SUFFIXES else file_type
@@ -393,6 +403,15 @@ def load_path_preview(
     include_game_palettes: bool = True,
     palette_context: tuple[str, ...] = (),
 ) -> EntryPreviewResult:
+    if not is_previewable_file_name(path.name):
+        return EntryPreviewResult(
+            "message",
+            message=QCoreApplication.translate(
+                "DocumentPreviewPane",
+                "Document preview is not available for this file type.",
+            ),
+        )
+
     try:
         metadata = path.stat()
         if not path.is_file():
@@ -1813,7 +1832,7 @@ def game_palette_catalog_directory_key(directory: Path) -> str:
 
 def _palette_catalog_cache_path(directory_key: str) -> Path:
     digest = hashlib.sha256(directory_key.encode("utf-8")).hexdigest()
-    return application_directory() / "palette-catalog" / f"{digest}.json"
+    return user_data_directory() / "cache" / "palette-catalog" / f"{digest}.json"
 
 
 def _read_persisted_palette_catalog(

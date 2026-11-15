@@ -2,7 +2,7 @@
 
 **Red Alert 2 and Yuri's Revenge MIX Browser** is a desktop application for browsing and managing Westwood MIX archives alongside ordinary game files and folders.
 
-Version: **1.0.0 beta 1**
+Version: **1.0.0**
 
 README: English | [简体中文](README.zh-CN.md)  
 Interface languages: English and Simplified Chinese
@@ -40,6 +40,27 @@ Preview limits: text entries are truncated at 2 MiB; DAT entries larger than 64 
 
 Game files are not included. Select an existing RA2/YR game directory in **Edit > Preferences > Palette Sources** to use its palettes and art rules for previews. The game directory is stored as a setting; its contents are read in place.
 
+## User Data
+
+The portable `user-data` folder beside the executable contains user-specific application data:
+
+- `RA2AYRMB.ini`: preferences and startup choices.
+- `user-palettes/`: imported PAL files and custom palette rules.
+- `name-sources/community/`: the optional downloaded community database.
+- `system-integration/default-app-samples/`: persistent samples used by Windows default-app selection.
+- `cache/palette-catalog/`: generated palette and art-rule cache for the configured game directory; it can be deleted and rebuilt.
+
+The application reads user data only from `user-data/`; it does not automatically import files from the executable folder. To migrate from version 1.0.0 beta 1 or earlier, before the first launch copy these items from beside the old executable to beside the new executable:
+
+- `RA2AYRMB.ini` to `user-data/RA2AYRMB.ini`.
+- `user-palettes/` to `user-data/user-palettes/`.
+- `name-sources/` to `user-data/name-sources/`.
+- `system-integration/` to `user-data/system-integration/`.
+
+For later updates, copy the entire `user-data/` folder beside the new executable. Windows Explorer registrations are stored separately in the current user's registry; re-register them in **Preferences > System Integration** if the executable's location changes.
+
+If the in-app community database download fails, click the hyperlink next to the download button to get `global_mix_database.dat.zip`. Copy it to `user-data/name-sources/community/global_mix_database.dat.zip` beside the executable, creating the folders if needed, then restart RA2AYRMB.
+
 ## Run From Source
 
 Requirements: Python 3.10 or newer. Supported Windows desktop builds require Windows 10 or later. On Windows, create the project environment and install the application:
@@ -71,7 +92,7 @@ Then install PyInstaller into the project environment and run the packaging scri
 package.bat
 ```
 
-The onedir build is created at `dist/RA2AYRMB/RA2AYRMB.exe`. Settings, imported palettes, and the optional community database are stored beside the executable.
+The onedir build is created at `dist/RA2AYRMB/RA2AYRMB.exe`. Settings, imported palettes, and the optional community database are stored under `dist/RA2AYRMB/user-data/`.
 
 ## CLI
 

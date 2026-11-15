@@ -10,6 +10,7 @@ from PySide6.QtNetwork import QLocalSocket
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QProgressBar,
@@ -36,35 +37,39 @@ class _TaskProgressWindow(QDialog):
         self._task_id = task_id
         self._cancelable = False
         self._total: int | None = None
-        self.setObjectName("taskProgressSurface")
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setFixedWidth(400)
-        self.setStyleSheet(
-            "QDialog#taskProgressSurface {"
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        surface = QFrame(self)
+        surface.setObjectName("taskProgressSurface")
+        surface.setStyleSheet(
+            "QFrame#taskProgressSurface {"
             "background: palette(window);"
             "border: 1px solid palette(mid);"
             "border-radius: 8px;"
             "}"
-            "QLabel#taskProgressTitle { font-weight: 600; }"
         )
+        outer_layout.addWidget(surface)
 
-        layout = QVBoxLayout(self)
+        layout = QVBoxLayout(surface)
         layout.setContentsMargins(16, 14, 16, 12)
         layout.setSpacing(8)
-        self._title_label = QLabel(self)
+        self._title_label = QLabel(surface)
         self._title_label.setObjectName("taskProgressTitle")
-        self._message_label = QLabel(self)
+        self._title_label.setStyleSheet("font-weight: 600;")
+        self._message_label = QLabel(surface)
         self._message_label.setWordWrap(True)
-        self._progress_bar = QProgressBar(self)
+        self._progress_bar = QProgressBar(surface)
         self._progress_bar.setTextVisible(False)
-        self._detail_label = QLabel(self)
+        self._detail_label = QLabel(surface)
         self._detail_label.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
         self._detail_label.setStyleSheet("color: palette(mid); font-size: 9pt;")
         self._cancel_button = QPushButton(
             QCoreApplication.translate("TaskProgressDialog", "Cancel"),
-            self,
+            surface,
         )
         self._cancel_button.clicked.connect(self._request_cancel)
         button_row = QHBoxLayout()

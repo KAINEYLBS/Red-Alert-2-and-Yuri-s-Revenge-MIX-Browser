@@ -4,15 +4,14 @@ import ctypes
 import importlib
 import logging
 import os
+import subprocess
 import sys
-import time
-import uuid
 import weakref
 from pathlib import Path
 from threading import RLock
 from types import ModuleType
 
-from PySide6.QtCore import QCoreApplication, QTimer, Qt, Signal
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtWidgets import QWidget
 
 from mix_browser.shared.application_settings import application_directory
@@ -23,20 +22,125 @@ _VLC_MODULE: ModuleType | None = None
 _VLC_INSTANCE = None
 _VLC_DLL_DIRECTORY = None
 _VLC_RUNTIME_ERROR = ""
-_VLC_SHUTDOWN_CONNECTED = False
-_AUDIO_COM_INITIALIZED = False
-_AUDIO_DEVICE_CACHE_VALID = False
-_AUDIO_DEVICE_CACHE_VALUE: str | None = None
-_AUDIO_DEVICE_CACHE_CHECKED_AT = 0.0
-_AUDIO_DEVICE_QUERY_ERROR_REPORTED = False
-_AUDIO_DEVICE_POLL_INTERVAL_SECONDS = 0.5
+_VLC_RUNTIME_LOADING = False
 _ACTIVE_PLAYERS: weakref.WeakValueDictionary[int, VlcMediaPlayer] = (
     weakref.WeakValueDictionary()
 )
 
 
-def _shutdown_vlc_runtime() -> None:
-    global _VLC_INSTANCE, _VLC_DLL_DIRECTORY, _AUDIO_COM_INITIALIZED
+# @arch mix-browser.vlc-runtime-preparation service | en: Loads the embedded libVLC runtime before a media preview needs it | zh: 在媒体预览需要运行时之前加载嵌入式 libVLC
+def prepare_vlc_runtime() -> bool:
+    global _VLC_MODULE, _VLC_INSTANCE, _VLC_DLL_DIRECTORY
+    global _VLC_RUNTIME_ERROR, _VLC_RUNTIME_LOADING
+
+    if sys.platform != "win32":
+        _VLC_RUNTIME_ERROR = (
+            "Embedded VLC media playback is currently available on Windows only."
+        )
+        return False
+
+    with _RUNTIME_LOCK:
+        if _VLC_INSTANCE is not None:
+            return True
+        if _VLC_RUNTIME_ERROR:
+            return False
+        if _VLC_RUNTIME_LOADING:
+            return False
+        _VLC_RUNTIME_LOADING = True
+
+    dll_directory = None
+    try:
+        runtime = VlcMediaPlayer._find_runtime()
+        if runtime is None:
+            _VLC_RUNTIME_ERROR = (
+                "The VLC runtime is missing. Run tools/prepare_vlc_runtime.bat, then restart the application."
+            )
+            return False
+        _ensure_plugin_cache(runtime)
+
+        old_library_path = os.environ.get("PYTHON_VLC_LIB_PATH")
+        old_module_path = os.environ.get("PYTHON_VLC_MODULE_PATH")
+        try:
+            dll_directory = os.add_dll_directory(str(runtime))
+            os.environ["PYTHON_VLC_LIB_PATH"] = str(runtime / "libvlc.dll")
+            os.environ["PYTHON_VLC_MODULE_PATH"] = str(runtime / "plugins")
+            module = importlib.import_module("vlc")
+            instance = module.Instance(
+                "--quiet",
+                "--ignore-config",
+                "--no-video-title-show",
+            )
+            if instance is None:
+                raise RuntimeError("libVLC could not create a player instance")
+        finally:
+            VlcMediaPlayer._restore_environment(
+                "PYTHON_VLC_LIB_PATH",
+                old_library_path,
+            )
+            VlcMediaPlayer._restore_environment(
+                "PYTHON_VLC_MODULE_PATH",
+                old_module_path,
+            )
+
+        with _RUNTIME_LOCK:
+            _VLC_MODULE = module
+            _VLC_DLL_DIRECTORY = dll_directory
+            _VLC_INSTANCE = instance
+            dll_directory = None
+        return True
+    except (Exception, SystemExit):
+        logger.exception("Could not load the bundled libVLC runtime")
+        _VLC_RUNTIME_ERROR = "The bundled VLC runtime could not be loaded."
+        return False
+    finally:
+        if dll_directory is not None:
+            dll_directory.close()
+        with _RUNTIME_LOCK:
+            _VLC_RUNTIME_LOADING = False
+
+
+# @arch mix-browser.vlc-plugin-cache utility | en: Creates a missing or empty cache for the selected VLC plugin directory | zh: 为指定的 VLC 插件目录生成缺失或空白缓存
+def _ensure_plugin_cache(runtime: Path) -> None:
+    plugin_directory = runtime / "plugins"
+    plugin_cache = plugin_directory / "plugins.dat"
+    try:
+        if plugin_cache.stat().st_size > 24:
+            return
+    except OSError:
+        pass
+
+    cache_generator = runtime / "vlc-cache-gen.exe"
+    if not cache_generator.is_file():
+        logger.warning(
+            "The VLC plugin cache is empty and its cache generator is unavailable."
+        )
+        return
+
+    result = subprocess.run(
+        [str(cache_generator), str(plugin_directory)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    if result.returncode:
+        raise RuntimeError(
+            "VLC plugin cache generation failed: "
+            + (result.stderr.strip() or result.stdout.strip() or str(result.returncode))
+        )
+    try:
+        cache_size = plugin_cache.stat().st_size
+    except OSError as exc:
+        raise RuntimeError("VLC plugin cache was not created.") from exc
+    if cache_size <= 24:
+        raise RuntimeError("VLC plugin cache generation produced an empty cache.")
+
+
+# @arch mix-browser.vlc-runtime-shutdown utility | en: Releases active players and the shared libVLC instance | zh: 释放活动播放器和共享 libVLC 实例
+def shutdown_vlc_runtime() -> None:
+    global _VLC_INSTANCE, _VLC_DLL_DIRECTORY
 
     for player in tuple(_ACTIVE_PLAYERS.values()):
         player.shutdown()
@@ -46,149 +150,17 @@ def _shutdown_vlc_runtime() -> None:
     if _VLC_DLL_DIRECTORY is not None:
         _VLC_DLL_DIRECTORY.close()
         _VLC_DLL_DIRECTORY = None
-    if _AUDIO_COM_INITIALIZED:
-        try:
-            ctypes.WinDLL("ole32").CoUninitialize()
-        except Exception:
-            logger.exception("Could not uninitialize Windows audio endpoint access")
-        _AUDIO_COM_INITIALIZED = False
-
-
-class _WindowsGuid(ctypes.Structure):
-    _fields_ = (
-        ("data1", ctypes.c_uint32),
-        ("data2", ctypes.c_uint16),
-        ("data3", ctypes.c_uint16),
-        ("data4", ctypes.c_ubyte * 8),
-    )
-
-
-def _windows_guid(value: str) -> _WindowsGuid:
-    return _WindowsGuid.from_buffer_copy(uuid.UUID(value).bytes_le)
-
-
-# @arch mix-browser.default-audio-output-id utility | en: Reads the current Windows default playback endpoint through Core Audio | zh: 通过 Core Audio 读取 Windows 当前默认播放端点
-def _query_windows_default_audio_output_id() -> str:
-    global _AUDIO_COM_INITIALIZED
-
-    ole32 = ctypes.WinDLL("ole32", use_last_error=True)
-    ole32.CoInitializeEx.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
-    ole32.CoInitializeEx.restype = ctypes.c_long
-    initialize_result = ole32.CoInitializeEx(None, 0x0)
-    changed_mode = ctypes.c_long(0x80010106).value
-    if initialize_result in (0, 1):
-        _AUDIO_COM_INITIALIZED = True
-    elif initialize_result != changed_mode:
-        raise OSError(initialize_result, "Core Audio COM initialization failed")
-
-    clsid_enumerator = _windows_guid("BCDE0395-E52F-467C-8E3D-C4579291692E")
-    iid_enumerator = _windows_guid("A95664D2-9614-4F35-A746-DE8DB63617E6")
-    ole32.CoCreateInstance.argtypes = (
-        ctypes.POINTER(_WindowsGuid),
-        ctypes.c_void_p,
-        ctypes.c_uint32,
-        ctypes.POINTER(_WindowsGuid),
-        ctypes.POINTER(ctypes.c_void_p),
-    )
-    ole32.CoCreateInstance.restype = ctypes.c_long
-    enumerator = ctypes.c_void_p()
-    result = ole32.CoCreateInstance(
-        ctypes.byref(clsid_enumerator),
-        None,
-        1,
-        ctypes.byref(iid_enumerator),
-        ctypes.byref(enumerator),
-    )
-    if result < 0 or not enumerator.value:
-        raise OSError(result, "Core Audio device enumeration could not start")
-
-    device = ctypes.c_void_p()
-    device_id = ctypes.c_void_p()
-    try:
-        enumerator_vtable = ctypes.cast(
-            enumerator,
-            ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)),
-        ).contents
-        get_default_endpoint = ctypes.WINFUNCTYPE(
-            ctypes.c_long,
-            ctypes.c_void_p,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.POINTER(ctypes.c_void_p),
-        )(enumerator_vtable[4])
-        result = get_default_endpoint(enumerator, 0, 1, ctypes.byref(device))
-        if result < 0 or not device.value:
-            raise OSError(result, "Windows has no default playback endpoint")
-
-        device_vtable = ctypes.cast(
-            device,
-            ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)),
-        ).contents
-        get_device_id = ctypes.WINFUNCTYPE(
-            ctypes.c_long,
-            ctypes.c_void_p,
-            ctypes.POINTER(ctypes.c_void_p),
-        )(device_vtable[5])
-        result = get_device_id(device, ctypes.byref(device_id))
-        if result < 0 or not device_id.value:
-            raise OSError(result, "The default playback endpoint has no device ID")
-        return ctypes.wstring_at(device_id.value)
-    finally:
-        if device_id.value:
-            ole32.CoTaskMemFree.argtypes = (ctypes.c_void_p,)
-            ole32.CoTaskMemFree(device_id)
-        release = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)
-        if device.value:
-            device_vtable = ctypes.cast(
-                device,
-                ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)),
-            ).contents
-            release(device_vtable[2])(device)
-        enumerator_vtable = ctypes.cast(
-            enumerator,
-            ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)),
-        ).contents
-        release(enumerator_vtable[2])(enumerator)
-
-
-def _current_windows_default_audio_output_id() -> str | None:
-    global _AUDIO_DEVICE_CACHE_VALID, _AUDIO_DEVICE_CACHE_VALUE
-    global _AUDIO_DEVICE_CACHE_CHECKED_AT, _AUDIO_DEVICE_QUERY_ERROR_REPORTED
-
-    if sys.platform != "win32":
-        return None
-    now = time.monotonic()
-    if (
-        _AUDIO_DEVICE_CACHE_VALID
-        and now - _AUDIO_DEVICE_CACHE_CHECKED_AT
-        < _AUDIO_DEVICE_POLL_INTERVAL_SECONDS
-    ):
-        return _AUDIO_DEVICE_CACHE_VALUE
-
-    _AUDIO_DEVICE_CACHE_CHECKED_AT = now
-    try:
-        _AUDIO_DEVICE_CACHE_VALUE = _query_windows_default_audio_output_id()
-        _AUDIO_DEVICE_CACHE_VALID = True
-        _AUDIO_DEVICE_QUERY_ERROR_REPORTED = False
-    except Exception:
-        if not _AUDIO_DEVICE_QUERY_ERROR_REPORTED:
-            logger.exception("Could not query the Windows default playback endpoint")
-            _AUDIO_DEVICE_QUERY_ERROR_REPORTED = True
-        _AUDIO_DEVICE_CACHE_VALID = False
-        return None
-    return _AUDIO_DEVICE_CACHE_VALUE
-
 
 # @arch mix-browser.vlc-media-player component | en: Plays in-memory audio and video through an embedded libVLC player | zh: 通过嵌入式 libVLC 播放内存中的音频和视频
 class VlcMediaPlayer(QWidget):
     playback_state_changed = Signal(bool)
     position_changed = Signal(int)
     duration_changed = Signal(int)
+    media_ready_changed = Signal(bool)
     error_occurred = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_NativeWindow)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         self.setStyleSheet("background-color: black;")
         self.setMinimumHeight(160)
@@ -198,19 +170,24 @@ class VlcMediaPlayer(QWidget):
         self._player = None
         self._media = None
         self._media_data: bytes | None = None
+        self._pending_media_data: bytes | None = None
+        self._pending_media_suffix = ""
         self._callbacks: tuple[object, ...] = ()
         self._runtime_error = ""
         self._is_playing = False
         self._position_ms = 0
         self._duration_ms = 0
+        self._pending_seek_position: int | None = None
         self._error_reported = False
         self._audio_initialized = False
         self._shutting_down = False
-        self._audio_output_device_id: str | None = None
 
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(100)
         self._poll_timer.timeout.connect(self._poll_player)
+        self._runtime_wait_timer = QTimer(self)
+        self._runtime_wait_timer.setInterval(100)
+        self._runtime_wait_timer.timeout.connect(self._finish_pending_media_setup)
 
     @property
     def is_playing(self) -> bool:
@@ -224,15 +201,16 @@ class VlcMediaPlayer(QWidget):
     def duration_ms(self) -> int:
         return self._duration_ms
 
-    def prepare_runtime(self) -> bool:
-        return self._ensure_vlc()
+    @property
+    def has_pending_media(self) -> bool:
+        return self._pending_media_data is not None
+
+    def prepare_video_surface(self) -> None:
+        self.setAttribute(Qt.WidgetAttribute.WA_NativeWindow)
+        self.winId()
 
     def set_media_data(self, data: bytes, media_suffix: str) -> bool:
         self.stop()
-        if not self._ensure_vlc():
-            self._report_error(self._runtime_error)
-            return False
-
         media_data = bytes(data)
         if not media_data:
             self._report_error(self.tr("The media stream is empty."))
@@ -242,6 +220,18 @@ class VlcMediaPlayer(QWidget):
             self._report_error(self.tr("VLC cannot preview this media format."))
             return False
 
+        if self._ensure_vlc():
+            return self._install_media_data(media_data, suffix)
+        if self._runtime_error:
+            self._report_error(self._runtime_error)
+            return False
+
+        self._pending_media_data = media_data
+        self._pending_media_suffix = suffix
+        self._runtime_wait_timer.start()
+        return False
+
+    def _install_media_data(self, media_data: bytes, suffix: str) -> bool:
         cursor = [0]
         cursor_lock = RLock()
         vlc = self._vlc
@@ -311,22 +301,56 @@ class VlcMediaPlayer(QWidget):
         self._media = media
         self._error_reported = False
         self._audio_initialized = False
-        self._audio_output_device_id = None
         self._position_ms = 0
         self._duration_ms = 0
+        self._pending_seek_position = None
         self.position_changed.emit(0)
         self.duration_changed.emit(0)
         return True
+
+    def _finish_pending_media_setup(self) -> None:
+        media_data = self._pending_media_data
+        if media_data is None:
+            self._runtime_wait_timer.stop()
+            return
+        if not self._ensure_vlc():
+            if self._runtime_error:
+                self._runtime_wait_timer.stop()
+                self._pending_media_data = None
+                self._pending_media_suffix = ""
+                self._report_error(self._runtime_error)
+            return
+
+        suffix = self._pending_media_suffix
+        self._runtime_wait_timer.stop()
+        self._pending_media_data = None
+        self._pending_media_suffix = ""
+        if self._install_media_data(media_data, suffix):
+            self.media_ready_changed.emit(True)
 
     def play(self) -> None:
         if self._player is None or self._media is None:
             return
         try:
+            pending_seek = self._pending_seek_position
+            restart = pending_seek is not None or (
+                self._vlc is not None
+                and self._player.get_state() == self._vlc.State.Ended
+            )
+            if restart:
+                self._player.stop()
+            self._prepare_audio_levels_for_playback()
             if self._player.play() < 0:
                 self._report_error(self.tr("VLC could not play this media."))
                 return
+            self._pending_seek_position = None
+            if pending_seek is not None:
+                self._player.set_time(pending_seek)
+                self._position_ms = pending_seek
+                self.position_changed.emit(pending_seek)
             self._poll_timer.start()
-            self._poll_player()
+            if pending_seek is None:
+                self._poll_player()
         except Exception:
             logger.exception("libVLC failed to start media playback")
             self._report_error(self.tr("VLC could not play this media."))
@@ -345,12 +369,24 @@ class VlcMediaPlayer(QWidget):
         if self._player is None or self._media is None:
             return
         try:
-            self._player.set_time(max(0, int(position_ms)))
+            position_ms = max(0, int(position_ms))
+            if (
+                self._vlc is not None
+                and self._player.get_state() == self._vlc.State.Ended
+            ):
+                # VLC no longer has an active input thread to receive this seek.
+                self._pending_seek_position = position_ms
+                self._position_ms = position_ms
+                self.position_changed.emit(position_ms)
+                return
+            self._pending_seek_position = None
+            self._player.set_time(position_ms)
             self._poll_player()
         except Exception:
             logger.exception("libVLC failed to seek Bink playback")
 
     def stop(self) -> None:
+        self._runtime_wait_timer.stop()
         self._poll_timer.stop()
         player = self._player
         media = self._media
@@ -368,6 +404,9 @@ class VlcMediaPlayer(QWidget):
         self._media = None
         self._callbacks = ()
         self._media_data = None
+        self._pending_media_data = None
+        self._pending_media_suffix = ""
+        self._pending_seek_position = None
         self._set_playing(False)
         if self._position_ms:
             self._position_ms = 0
@@ -389,7 +428,6 @@ class VlcMediaPlayer(QWidget):
                 player.release()
             except Exception:
                 logger.exception("libVLC failed to release the Bink player")
-        self._audio_output_device_id = None
         _ACTIVE_PLAYERS.pop(id(self), None)
 
     def _ensure_vlc(self) -> bool:
@@ -399,79 +437,30 @@ class VlcMediaPlayer(QWidget):
             return False
         if self._runtime_error:
             return False
-        if sys.platform != "win32":
-            self._runtime_error = self.tr(
-                "Embedded VLC media playback is currently available on Windows only."
-            )
+        if _VLC_RUNTIME_ERROR:
+            self._runtime_error = self.tr(_VLC_RUNTIME_ERROR)
+            return False
+        if _VLC_INSTANCE is None or _VLC_MODULE is None:
             return False
 
-        global _VLC_MODULE, _VLC_INSTANCE, _VLC_DLL_DIRECTORY
-        global _VLC_RUNTIME_ERROR, _VLC_SHUTDOWN_CONNECTED
-        with _RUNTIME_LOCK:
-            if _VLC_RUNTIME_ERROR:
-                self._runtime_error = self.tr(_VLC_RUNTIME_ERROR)
-                return False
-            if _VLC_INSTANCE is None:
-                runtime = self._find_runtime()
-                if runtime is None:
-                    _VLC_RUNTIME_ERROR = (
-                        "The VLC runtime is missing. Run tools/prepare_vlc_runtime.bat, then restart the application."
-                    )
-                    self._runtime_error = self.tr(_VLC_RUNTIME_ERROR)
-                    return False
+        try:
+            self._vlc = _VLC_MODULE
+            self._instance = _VLC_INSTANCE
+            self._player = self._instance.media_player_new()
+            self.prepare_video_surface()
+            self._player.set_hwnd(int(self.winId()))
+        except Exception:
+            logger.exception("Could not initialize the embedded libVLC player")
+            self._runtime_error = self.tr(
+                "The bundled VLC runtime could not initialize media playback."
+            )
+            if self._player is not None:
+                self._player.release()
+            self._player = None
+            self._instance = None
+            return False
 
-                old_library_path = os.environ.get("PYTHON_VLC_LIB_PATH")
-                old_module_path = os.environ.get("PYTHON_VLC_MODULE_PATH")
-                dll_directory = None
-                try:
-                    dll_directory = os.add_dll_directory(str(runtime))
-                    os.environ["PYTHON_VLC_LIB_PATH"] = str(runtime / "libvlc.dll")
-                    os.environ["PYTHON_VLC_MODULE_PATH"] = str(runtime / "plugins")
-                    module = importlib.import_module("vlc")
-                    instance = module.Instance(
-                        "--quiet",
-                        "--ignore-config",
-                        "--no-video-title-show",
-                    )
-                    if instance is None:
-                        raise RuntimeError("libVLC could not create a player instance")
-                except (Exception, SystemExit):
-                    logger.exception("Could not load the bundled libVLC runtime")
-                    if dll_directory is not None:
-                        dll_directory.close()
-                    _VLC_RUNTIME_ERROR = "The bundled VLC runtime could not be loaded."
-                    self._runtime_error = self.tr(_VLC_RUNTIME_ERROR)
-                    return False
-                finally:
-                    self._restore_environment("PYTHON_VLC_LIB_PATH", old_library_path)
-                    self._restore_environment("PYTHON_VLC_MODULE_PATH", old_module_path)
-
-                _VLC_MODULE = module
-                _VLC_INSTANCE = instance
-                _VLC_DLL_DIRECTORY = dll_directory
-
-            try:
-                self._vlc = _VLC_MODULE
-                self._instance = _VLC_INSTANCE
-                self._player = self._instance.media_player_new()
-                self._player.set_hwnd(int(self.winId()))
-            except Exception:
-                logger.exception("Could not initialize the embedded libVLC player")
-                self._runtime_error = self.tr(
-                    "The bundled VLC runtime could not initialize media playback."
-                )
-                if self._player is not None:
-                    self._player.release()
-                self._player = None
-                self._instance = None
-                return False
-
-            _ACTIVE_PLAYERS[id(self)] = self
-            if not _VLC_SHUTDOWN_CONNECTED:
-                application = QCoreApplication.instance()
-                if application is not None:
-                    application.aboutToQuit.connect(_shutdown_vlc_runtime)
-                    _VLC_SHUTDOWN_CONNECTED = True
+        _ACTIVE_PLAYERS[id(self)] = self
         return True
 
     @staticmethod
@@ -516,7 +505,6 @@ class VlcMediaPlayer(QWidget):
             self._set_playing(playing)
             if playing:
                 self._initialize_audio_track()
-                self._follow_system_default_audio_output()
 
             duration = max(0, int(self._player.get_length()))
             if duration != self._duration_ms:
@@ -550,24 +538,18 @@ class VlcMediaPlayer(QWidget):
                 return
             if self._player.audio_get_track() < 0:
                 self._player.audio_set_track(available_track_ids[0])
-            self._follow_system_default_audio_output()
-            self._player.audio_set_mute(False)
-            self._player.audio_set_volume(100)
             self._audio_initialized = True
         except Exception:
             logger.exception("Could not initialize media audio playback")
 
-    def _follow_system_default_audio_output(self) -> None:
+    def _prepare_audio_levels_for_playback(self) -> None:
         if self._player is None:
             return
-        device_id = _current_windows_default_audio_output_id()
-        if not device_id or device_id == self._audio_output_device_id:
-            return
         try:
-            self._player.audio_output_device_set(None, device_id)
-            self._audio_output_device_id = device_id
+            self._player.audio_set_mute(False)
+            self._player.audio_set_volume(100)
         except Exception:
-            logger.exception("Could not switch VLC to the Windows default playback endpoint")
+            logger.exception("Could not prepare VLC audio levels for playback")
 
     def _set_playing(self, playing: bool) -> None:
         playing = bool(playing)

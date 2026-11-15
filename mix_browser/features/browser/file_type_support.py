@@ -54,6 +54,9 @@ DIRECT_PREVIEW_SUFFIXES = frozenset(
         ".dat",
     }
 )
+PREVIEWABLE_FILE_SUFFIXES = (
+    DOCUMENT_PREVIEW_SUFFIXES | DIRECT_PREVIEW_SUFFIXES | PCX_PREVIEW_SUFFIXES
+)
 DIRECT_PREVIEW_TYPES = frozenset(
     {
         "SHP",
@@ -79,6 +82,11 @@ MAX_IMAGE_PREVIEW_BYTES = 64 * 1024 * 1024
 MAX_DAT_PREVIEW_BYTES = 64 * 1024 * 1024
 MAX_MEDIA_PREVIEW_BYTES = 128 * 1024 * 1024
 MAX_IMAGE_PREVIEW_PIXELS = 32 * 1024 * 1024
+
+
+# @arch mix-browser.previewable-file-name utility | en: Checks whether a filename extension is eligible for preview loading | zh: 检查文件扩展名是否允许进入预览加载
+def is_previewable_file_name(file_name: str) -> bool:
+    return Path(file_name).suffix.casefold() in PREVIEWABLE_FILE_SUFFIXES
 
 
 def _preview_suffixes_for_types(types: frozenset[str]) -> tuple[str, ...]:
