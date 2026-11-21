@@ -219,6 +219,7 @@ def add_files_to_mix(
     source_paths: Sequence[Path],
     temporary_root: Path,
     *,
+    item_names: Sequence[str] | None = None,
     overwrite: bool = False,
     expected_archive_signature: tuple[int, int],
     progress: ProgressCallback | None = None,
@@ -230,6 +231,8 @@ def add_files_to_mix(
         raise ExternalFileChangedError("The MIX archive changed before files were added.")
     if not source_paths:
         raise ValueError("At least one source file is required.")
+    if item_names is not None and len(item_names) != len(source_paths):
+        raise ValueError("The number of MIX item names must match the number of source files.")
 
     layouts = _build_archive_layout_chain(archive)
     leaf = layouts[0]
@@ -241,11 +244,11 @@ def add_files_to_mix(
     source_ids: dict[int, str] = {}
     total_input_size = 0
 
-    for raw_path in source_paths:
+    names = item_names if item_names is not None else tuple(path.name for path in source_paths)
+    for raw_path, name in zip(source_paths, names, strict=True):
         path = raw_path.expanduser().resolve()
         if path == root_path.resolve() or not path.is_file():
             raise ValueError(f"The source must be a regular file outside the target MIX: {path}")
-        name = path.name
         if not _is_valid_mix_filename(name):
             raise ValueError(f"The file name cannot be stored in a MIX archive: {name}")
         if name.casefold() == LOCAL_MIX_DATABASE_NAME.casefold():
@@ -461,10 +464,12 @@ def edit_mix_entries(
     remove_ids: Sequence[int] = (),
     rename_entries: Mapping[int, str] | None = None,
     copy_entries: Sequence[tuple[MixArchiveIndex, MixEntry]] = (),
+    add_file_paths: Sequence[Path] = (),
+    overwrite_added_files: bool = False,
     expected_archive_signature: tuple[int, int],
     progress: ProgressCallback | None = None,
     cancellation_requested: CancellationCheck | None = None,
-) -> tuple[tuple[int, int], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+) -> tuple[tuple[int, int], tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
     root_path = archive.path
     initial_stat = root_path.stat()
     if (initial_stat.st_size, initial_stat.st_mtime_ns) != expected_archive_signature:
@@ -519,9 +524,58 @@ def edit_mix_entries(
         if name:
             copied_names.append(name)
 
+    prepared_files: list[tuple[Path, str, int, int, tuple[int, int]]] = []
+    file_names: set[str] = set()
+    file_ids: set[int] = set()
+    for raw_path in add_file_paths:
+        path = raw_path.expanduser().resolve()
+        if path == root_path.resolve() or not path.is_file():
+            raise ValueError(f"The added file must be a regular file outside the target MIX: {path}")
+        name = path.name
+        if not _is_valid_mix_filename(name) or name.casefold() == LOCAL_MIX_DATABASE_NAME.casefold():
+            raise ValueError(f"The added file name cannot be stored in a MIX archive: {name}")
+        name_key = name.casefold()
+        if name_key in file_names:
+            raise ValueError(f"More than one added file has the same name: {name}")
+        file_names.add(name_key)
+        file_id = _mix_file_hashes(name)[hash_index]
+        if file_id == database_id:
+            raise ValueError("The added file name resolves to the reserved local MIX name database ID.")
+        if file_id in file_ids:
+            raise ValueError(f"More than one added file resolves to MIX ID 0x{file_id:08X}.")
+        file_ids.add(file_id)
+        metadata = path.stat()
+        prepared_files.append(
+            (path, name, file_id, metadata.st_size, (metadata.st_size, metadata.st_mtime_ns))
+        )
+
     retained_ids = existing_ids - removed_ids - set(renames) - {database_id}
     destination_ids = set(retained_ids)
-    requested_ids = (*renamed_ids.values(), *(item[2] for item in prepared_copies))
+    file_replacements: dict[int, tuple[Path, str, int, int, tuple[int, int]]] = {}
+    file_additions: list[tuple[Path, str, int, int, tuple[int, int]]] = []
+    for record in prepared_files:
+        _path, name, file_id, _size, _signature = record
+        if file_id in destination_ids:
+            existing = existing_entries.get(file_id)
+            if existing is not None and existing.name and existing.name.casefold() != name.casefold():
+                raise ExternalFileChangedError(
+                    f"The name {name} resolves to the existing entry {existing.name}."
+                )
+            if not overwrite_added_files:
+                raise FileExistsError(
+                    _entry_collision_message(existing, file_id)
+                    if existing is not None
+                    else f"A MIX entry with ID 0x{file_id:08X} already exists."
+                )
+            file_replacements[file_id] = record
+        else:
+            file_additions.append(record)
+
+    requested_ids = (
+        *renamed_ids.values(),
+        *(item[2] for item in prepared_copies),
+        *(item[2] for item in file_additions),
+    )
     if database_id in requested_ids:
         raise ValueError("A requested entry name collides with the embedded MIX name database.")
     for target_id in requested_ids:
@@ -545,13 +599,14 @@ def edit_mix_entries(
     else:
         database_names = []
     # Keep the embedded local name database aligned with the same archive edit.
-    affected_ids = removed_ids | set(renames)
+    affected_ids = removed_ids | set(renames) | set(file_replacements)
     database_names = [
         name for name in database_names
         if _mix_file_hashes(name)[hash_index] not in affected_ids
     ]
     known_names = {name.casefold() for name in database_names}
-    for name in (*renamed_names, *copied_names):
+    added_file_names = [name for _path, name, _file_id, _size, _signature in prepared_files]
+    for name in (*renamed_names, *copied_names, *added_file_names):
         if name.casefold() not in known_names:
             database_names.append(name)
             known_names.add(name.casefold())
@@ -564,13 +619,25 @@ def edit_mix_entries(
         + b"".join(name.encode("ascii") + b"\0" for name in database_names)
     )
 
-    database_size_changed = database_entry is not None or bool(renamed_names or copied_names)
+    database_size_changed = database_entry is not None or bool(
+        renamed_names or copied_names or added_file_names
+    )
     replacement_sizes = (
         {database_id: len(updated_database)}
         if database_size_changed and database_entry is not None
         else {}
     )
-    additions_sizes = [(target_id, entry.size) for _source, entry, target_id, _name in prepared_copies]
+    replacement_sizes.update(
+        {file_id: record[3] for file_id, record in file_replacements.items()}
+    )
+    additions_sizes = [
+        (target_id, entry.size)
+        for _source, entry, target_id, _name in prepared_copies
+    ]
+    additions_sizes.extend(
+        (file_id, size)
+        for _path, _name, file_id, size, _signature in file_additions
+    )
     if database_size_changed and database_entry is None:
         additions_sizes.append((database_id, len(updated_database)))
     output_sizes: list[int] = []
@@ -587,6 +654,7 @@ def edit_mix_entries(
         output_sizes.append(current_size)
 
     total = sum(entry.size for _source, entry, _target_id, _name in prepared_copies)
+    total += sum(size for _path, _name, _file_id, size, _signature in prepared_files)
     if database_size_changed:
         total += len(updated_database)
     total += sum(output_sizes) + output_sizes[-1]
@@ -627,6 +695,21 @@ def edit_mix_entries(
             _copy_mix_entry_to_path(source_archive, entry, snapshot, report, cancellation_requested)
             additions.append((target_id, snapshot))
         replacements: dict[int, Path] = {}
+        for index, (source, _name, file_id, _size, expected_signature) in enumerate(prepared_files):
+            _check_cancelled(cancellation_requested)
+            snapshot = _temporary_path(temporary_root, f"added-file-{index:08d}-")
+            temporary_paths.append(snapshot)
+            _copy_and_verify_source(
+                source,
+                snapshot,
+                expected_signature,
+                report,
+                cancellation_requested,
+            )
+            if file_id in file_replacements:
+                replacements[file_id] = snapshot
+            else:
+                additions.append((file_id, snapshot))
         if database_size_changed:
             database_snapshot = _temporary_path(temporary_root, "local-mix-database-")
             temporary_paths.append(database_snapshot)
@@ -704,6 +787,7 @@ def edit_mix_entries(
             removed_names,
             tuple(renamed_names),
             copied_labels,
+            tuple(added_file_names),
         )
     finally:
         if sibling_path is not None:
@@ -883,6 +967,11 @@ def mix_file_ids_for_archive(archive: MixArchiveIndex, names: Sequence[str]) -> 
         _mix_file_hashes(name)[0 if legacy_hash else 1]
         for name in names
     )
+
+
+# @arch mix-browser.new-mix-entry-ids utility | en: Computes entry IDs for a newly created standard MIX archive | zh: 计算新建标准 MIX 归档中的条目 ID
+def mix_file_ids_for_new_archive(names: Sequence[str]) -> tuple[int, ...]:
+    return tuple(_mix_file_hashes(name)[1] for name in names)
 
 
 def _output_size(layout: _ArchiveLayout, target_id: int, replacement_size: int) -> int:

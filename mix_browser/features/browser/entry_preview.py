@@ -1,33 +1,39 @@
 from __future__ import annotations
 
-import math
+from functools import lru_cache
 from html import escape
 
 from PySide6.QtCore import (
     QAbstractTableModel,
     QModelIndex,
+    QPointF,
     QRect,
     QSignalBlocker,
+    QSize,
     QT_TRANSLATE_NOOP,
     Qt,
     QTimer,
     Signal,
 )
 from PySide6.QtGui import (
+    QBrush,
     QColor,
+    QIcon,
     QImage,
     QMatrix4x4,
+    QOpenGLContext,
     QOpenGLFunctions,
     QPainter,
     QPalette,
+    QPen,
     QPixmap,
     QStandardItem,
     QStandardItemModel,
     QVector3D,
+    QVector4D,
 )
 from PySide6.QtOpenGL import (
     QOpenGLBuffer,
-    QOpenGLShader,
     QOpenGLShaderProgram,
     QOpenGLTexture,
 )
@@ -36,10 +42,12 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QColorDialog,
     QDialog,
     QDialogButtonBox,
     QFrame,
     QGraphicsPixmapItem,
+    QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView,
     QHBoxLayout,
@@ -73,14 +81,80 @@ from mix_browser.features.browser.palette_naming_guide import (
     PaletteNamingGuideDialog,
 )
 from mix_browser.features.browser.vlc_video_player import VlcMediaPlayer
+from mix_browser.features.browser.voxel_renderer import (
+    VoxelRendererResources,
+    create_voxel_shader_program,
+)
 from mix_browser.shared.application_style import BROWSER_TOOLBAR_CONTROL_HEIGHT
+from mix_browser.shared.interaction_help import (
+    InteractionHelpButton,
+    InteractionHelpCatalog,
+)
 
 _GL_DEPTH_TEST = 0x0B71
 _GL_LEQUAL = 0x0203
-_GL_COLOR_BUFFER_BIT = 0x00004000
 _GL_DEPTH_BUFFER_BIT = 0x00000100
 _GL_FLOAT = 0x1406
 _GL_TRIANGLES = 0x0004
+
+
+@lru_cache(maxsize=1)
+def _checkerboard_tile() -> QPixmap:
+    tile = QPixmap(24, 24)
+    tile.fill(QColor("#f1f1f1"))
+    painter = QPainter(tile)
+    painter.fillRect(0, 0, 12, 12, QColor("#d1d1d1"))
+    painter.fillRect(12, 12, 12, 12, QColor("#d1d1d1"))
+    painter.end()
+    return tile
+
+
+def _preview_background_brush(mode: str, custom_color: str) -> QBrush:
+    if mode == "checkerboard":
+        return QBrush(_checkerboard_tile())
+    colors = {
+        "dark": QColor("#242424"),
+        "light": QColor("#f4f4f4"),
+        "green": QColor("#00a000"),
+        "custom": QColor(custom_color),
+    }
+    return QBrush(colors.get(mode, QColor("#242424")))
+
+
+def _preview_text_color(mode: str, custom_color: str) -> QColor:
+    if mode == "checkerboard":
+        return QColor("#171717")
+    backgrounds = {
+        "dark": QColor("#242424"),
+        "light": QColor("#f4f4f4"),
+        "green": QColor("#00a000"),
+        "custom": QColor(custom_color),
+    }
+    background = backgrounds.get(mode, QColor("#242424"))
+    if not background.isValid():
+        background = QColor("#242424")
+
+    def linear(channel: float) -> float:
+        if channel <= 0.04045:
+            return channel / 12.92
+        return ((channel + 0.055) / 1.055) ** 2.4
+
+    luminance = (
+        0.2126 * linear(background.redF())
+        + 0.7152 * linear(background.greenF())
+        + 0.0722 * linear(background.blueF())
+    )
+    return QColor("#000000" if luminance >= 0.179 else "#ffffff")
+
+
+def _draw_contrast_border(painter: QPainter, rect: QRect) -> None:
+    painter.save()
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.setPen(QPen(QColor(0, 0, 0, 210), 3))
+    painter.drawRect(rect)
+    painter.setPen(QPen(QColor(255, 255, 255, 225), 1, Qt.PenStyle.DashLine))
+    painter.drawRect(rect)
+    painter.restore()
 
 
 # @arch mix-browser.dat-preview-table-model model | en: Exposes parsed DAT records to a virtualized preview table | zh: 将解析后的 DAT 记录提供给虚拟化预览表格
@@ -318,42 +392,129 @@ class _ZoomableImageView(QGraphicsView):
         super().mouseReleaseEvent(event)
 
 
+# @arch mix-browser.media-preview-surface component | en: Frames VLC video at its detected aspect ratio and paints the selected background and outline | zh: 按 VLC 检测到的画幅比例显示视频，并绘制所选背景和边界
+class _MediaPreviewSurface(QWidget):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setMinimumHeight(160)
+        self._media_player: VlcMediaPlayer | None = None
+        self._placeholder: QLabel | None = None
+        self._video_mode = False
+        self._asset_boundaries_visible = False
+        self._aspect_ratio: float | None = None
+        self._content_rect = QRect()
+        self._background_mode = "checkerboard"
+        self._custom_background_color = "#00a000"
+        self._text_color = _preview_text_color(
+            self._background_mode,
+            self._custom_background_color,
+        )
+
+    def set_content(
+        self,
+        media_player: VlcMediaPlayer,
+        placeholder: QLabel,
+    ) -> None:
+        self._media_player = media_player
+        self._placeholder = placeholder
+        self._refresh_placeholder_text_color()
+        self._layout_content()
+
+    def set_video_mode(self, enabled: bool) -> None:
+        self._video_mode = bool(enabled)
+        if not enabled:
+            self._aspect_ratio = None
+        self._layout_content()
+
+    def set_video_size(self, width: int, height: int) -> None:
+        self._aspect_ratio = (
+            width / height
+            if self._video_mode and width > 0 and height > 0
+            else None
+        )
+        self._layout_content()
+
+    def set_preview_background(self, mode: str, custom_color: str) -> None:
+        self._background_mode = mode
+        self._custom_background_color = custom_color
+        self._text_color = _preview_text_color(mode, custom_color)
+        self._refresh_placeholder_text_color()
+        self.update()
+
+    def set_asset_boundaries_visible(self, visible: bool) -> None:
+        self._asset_boundaries_visible = bool(visible)
+        self.update()
+
+    def set_placeholder_text(self, text: str) -> None:
+        if self._placeholder is not None:
+            self._placeholder.setText(text)
+            self._refresh_placeholder_text_color()
+
+    def _refresh_placeholder_text_color(self) -> None:
+        if self._placeholder is not None:
+            self._placeholder.setStyleSheet(
+                f"color: {self._text_color.name()};"
+            )
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._layout_content()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.fillRect(
+            self.rect(),
+            _preview_background_brush(
+                self._background_mode,
+                self._custom_background_color,
+            ),
+        )
+        if (
+            self._asset_boundaries_visible
+            and self._video_mode
+            and not self._content_rect.isEmpty()
+        ):
+            border = self._content_rect.adjusted(-2, -2, 1, 1)
+            _draw_contrast_border(painter, border)
+        painter.end()
+
+    def _layout_content(self) -> None:
+        margin = 3 if self._video_mode else 0
+        available = self.rect().adjusted(margin, margin, -margin, -margin)
+        if available.width() <= 0 or available.height() <= 0:
+            self._content_rect = QRect()
+        elif self._aspect_ratio:
+            width = available.width()
+            height = available.height()
+            if width / height > self._aspect_ratio:
+                width = round(height * self._aspect_ratio)
+            else:
+                height = round(width / self._aspect_ratio)
+            self._content_rect = QRect(0, 0, width, height)
+            self._content_rect.moveCenter(available.center())
+        else:
+            self._content_rect = available
+        for widget in (self._media_player, self._placeholder):
+            if widget is not None:
+                widget.setGeometry(self._content_rect)
+        self.update()
+
+
 class _VoxelModelView(QOpenGLWidget):
     zoom_changed = Signal(float)
     _VERTEX_STRIDE = 7 * 4
-    _CAMERA_DISTANCE = 3.2
+    _CAMERA_DISTANCE = 32.0
+    _CAMERA_ELEVATION_RATIO = 0.62
     _VERTICAL_FOV = 38.0
     _DEFAULT_YAW = -45.0
-    _VERTEX_SHADER = """#version 120
-attribute vec3 aPosition;
-attribute vec3 aNormal;
-attribute float aColorIndex;
-uniform mat4 uMvp;
-uniform mat3 uNormalMatrix;
-varying vec3 vNormal;
-varying float vColorIndex;
-void main() {
-    gl_Position = uMvp * vec4(aPosition, 1.0);
-    vNormal = normalize(uNormalMatrix * aNormal);
-    vColorIndex = aColorIndex;
-}
-"""
-    _FRAGMENT_SHADER = """#version 120
-uniform sampler2D uPalette;
-varying vec3 vNormal;
-varying float vColorIndex;
-void main() {
-    vec2 palettePosition = vec2((vColorIndex + 0.5) / 256.0, 0.5);
-    vec3 baseColor = texture2D(uPalette, palettePosition).rgb;
-    vec3 lightDirection = normalize(vec3(-0.35, -0.45, 0.82));
-    float light = 0.32 + 0.68 * max(dot(normalize(vNormal), lightDirection), 0.0);
-    gl_FragColor = vec4(baseColor * light, 1.0);
-}
-"""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        renderer_resources: VoxelRendererResources | None = None,
+    ) -> None:
         super().__init__(parent)
-        # This format request is limited to the VXL preview widget instance.
+        # Keep this widget compatible with the application-wide shared GL context.
         surface_format = self.format()
         surface_format.setVersion(2, 0)
         surface_format.setDepthBufferSize(24)
@@ -362,28 +523,41 @@ void main() {
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
         self._model: VoxelModel | None = None
+        self._frame_index = 0
         self._palette: PaletteOption | None = None
-        self._zoom = 0.2
+        self._zoom = 1.0
         self._yaw = 0.0
         self._pitch = 0.0
         self._pan_x = 0.0
         self._pan_y = 0.0
         self._drag_mode: str | None = None
         self._last_pointer = None
+        self._background_mode = "checkerboard"
+        self._custom_background_color = "#00a000"
+        self._asset_boundaries_visible = False
+        self._render_text_color = _preview_text_color(
+            self._background_mode,
+            self._custom_background_color,
+        )
+        self._renderer_resources = renderer_resources
         self._gl: QOpenGLFunctions | None = None
         self._program: QOpenGLShaderProgram | None = None
+        self._owns_program = False
         self._vertex_buffer = QOpenGLBuffer(QOpenGLBuffer.Type.VertexBuffer)
         self._palette_texture: QOpenGLTexture | None = None
+        self._geometry_dirty = True
         self._palette_dirty = True
         self._vertex_count = 0
         self._render_error: str | None = None
 
     def set_model(self, model: VoxelModel, palette: PaletteOption) -> None:
         self._model = model
+        self._frame_index = 0
         self._palette = palette
+        self._geometry_dirty = True
         self._palette_dirty = True
         self._reset_orientation()
-        self._zoom = 0.2
+        self._zoom = 1.0
         self.zoom_changed.emit(self._zoom)
         if self._gl is not None:
             self.makeCurrent()
@@ -397,15 +571,13 @@ void main() {
         self._model = None
         self._palette = None
         self._vertex_count = 0
+        self._geometry_dirty = True
         self._palette_dirty = True
         if self._gl is not None and self.isValid():
             self.makeCurrent()
             try:
                 if self._vertex_buffer.isCreated():
                     self._vertex_buffer.destroy()
-                if self._palette_texture is not None:
-                    self._palette_texture.destroy()
-                    self._palette_texture = None
             finally:
                 self.doneCurrent()
         self.update()
@@ -413,6 +585,25 @@ void main() {
     def set_palette(self, palette: PaletteOption) -> None:
         self._palette = palette
         self._palette_dirty = True
+        self.update()
+
+    def set_preview_background(self, mode: str, custom_color: str) -> None:
+        self._background_mode = mode
+        self._custom_background_color = custom_color
+        self._render_text_color = _preview_text_color(mode, custom_color)
+        self.update()
+
+    def set_asset_boundaries_visible(self, visible: bool) -> None:
+        self._asset_boundaries_visible = bool(visible)
+        self.update()
+
+    def set_frame(self, frame_index: int) -> None:
+        if self._model is None:
+            return
+        frame_index = min(max(frame_index, 0), self._model.frame_count - 1)
+        if frame_index == self._frame_index:
+            return
+        self._frame_index = frame_index
         self.update()
 
     def set_zoom(self, zoom: float) -> None:
@@ -423,31 +614,9 @@ void main() {
         self.zoom_changed.emit(zoom)
         self.update()
 
-    def fit_default_zoom(self, maximum_zoom: float) -> float:
-        width = max(1, self.width())
-        height = max(1, self.height())
-        aspect = width / height
-        vertical_half_angle = math.radians(self._VERTICAL_FOV / 2)
-        horizontal_half_angle = math.atan(
-            math.tan(vertical_half_angle) * aspect
-        )
-        limiting_half_angle = min(vertical_half_angle, horizontal_half_angle)
-        camera_distance = math.hypot(
-            self._CAMERA_DISTANCE,
-            self._CAMERA_DISTANCE * 0.62,
-        )
-        bounding_sphere_radius = math.sqrt(3)
-        fit_zoom = (
-            camera_distance
-            * math.sin(limiting_half_angle)
-            / bounding_sphere_radius
-            * 0.9
-        )
-        return max(0.001, min(maximum_zoom, fit_zoom))
-
     def reset_view(self) -> None:
         self._reset_orientation()
-        self.set_zoom(0.2)
+        self.set_zoom(1.0)
         self.update()
 
     def _reset_orientation(self) -> None:
@@ -457,93 +626,153 @@ void main() {
         self._pan_y = 0.0
 
     def initializeGL(self) -> None:
+        context = self.context()
+        if context is not None:
+            context.aboutToBeDestroyed.connect(
+                self._cleanup_gl_resources,
+                Qt.ConnectionType.DirectConnection,
+            )
         self._gl = self.context().functions()
         self._gl.initializeOpenGLFunctions()
         self._gl.glEnable(_GL_DEPTH_TEST)
         self._gl.glDepthFunc(_GL_LEQUAL)
 
-        program = QOpenGLShaderProgram(self)
-        if not program.addShaderFromSourceCode(
-            QOpenGLShader.ShaderTypeBit.Vertex,
-            self._VERTEX_SHADER,
-        ):
-            self._render_error = program.log()
+        self._render_error = None
+        self._program = None
+        self._owns_program = False
+        if self._renderer_resources is not None and context is not None:
+            self._program = self._renderer_resources.program_for_context(context)
+        if self._program is None:
+            self._program = create_voxel_shader_program(self)
+            self._owns_program = self._program is not None
+        if self._program is None:
+            self._render_error = self.tr("The VXL renderer could not be initialized.")
             return
-        if not program.addShaderFromSourceCode(
-            QOpenGLShader.ShaderTypeBit.Fragment,
-            self._FRAGMENT_SHADER,
-        ):
-            self._render_error = program.log()
-            return
-        if not program.link():
-            self._render_error = program.log()
-            return
-        self._program = program
         self._vertex_buffer.setUsagePattern(QOpenGLBuffer.UsagePattern.StaticDraw)
         if not self._vertex_buffer.create():
             self._render_error = self.tr("The VXL vertex buffer could not be created.")
             return
+        texture = QOpenGLTexture(QOpenGLTexture.Target.Target1D)
+        texture.setSize(256)
+        texture.setFormat(QOpenGLTexture.TextureFormat.RGB8_UNorm)
+        texture.setMinMagFilters(
+            QOpenGLTexture.Filter.Nearest,
+            QOpenGLTexture.Filter.Nearest,
+        )
+        texture.setWrapMode(QOpenGLTexture.WrapMode.ClampToEdge)
+        texture.allocateStorage(
+            QOpenGLTexture.PixelFormat.RGB,
+            QOpenGLTexture.PixelType.UInt8,
+        )
+        if not texture.isStorageAllocated():
+            texture.destroy()
+            del texture
+            self._render_error = self.tr("The VXL renderer could not be initialized.")
+            return
+        self._palette_texture = texture
         self._upload_model()
 
-    def _upload_model(self) -> None:
-        if self._model is None:
+    def _cleanup_gl_resources(self) -> None:
+        context = self.context()
+        if context is None:
             return
-        if not self._vertex_buffer.isCreated() and not self._vertex_buffer.create():
-            self._render_error = self.tr("The VXL vertex buffer could not be created.")
-            return
-        if not self._vertex_buffer.bind():
-            self._render_error = self.tr("The VXL vertex buffer could not be bound.")
-            return
-        self._vertex_buffer.allocate(self._model.vertices, len(self._model.vertices))
-        self._vertex_buffer.release()
-        self._vertex_count = self._model.vertex_count
+        already_current = QOpenGLContext.currentContext() is context
+        if not already_current:
+            self.makeCurrent()
+        try:
+            if self._vertex_buffer.isCreated():
+                self._vertex_buffer.destroy()
+            if self._palette_texture is not None:
+                self._palette_texture.destroy()
+                self._palette_texture = None
+            if self._owns_program and self._program is not None:
+                program = self._program
+                program.removeAllShaders()
+                program.setParent(None)
+                self._program = None
+                self._owns_program = False
+                del program
+            else:
+                self._program = None
+        finally:
+            self._gl = None
+            self._vertex_count = 0
+            self._geometry_dirty = True
+            self._palette_dirty = True
+            if not already_current:
+                self.doneCurrent()
 
-    def _upload_palette(self) -> None:
-        palette = self._palette
-        if palette is None:
+    def _upload_model(self) -> None:
+        if (
+            self._model is None
+            or self._palette is None
+            or self._palette_texture is None
+        ):
             return
-        image = QImage(256, 1, QImage.Format.Format_RGBA8888)
-        for index in range(256):
-            red, green, blue = (
-                palette.colors[index]
-                if index < len(palette.colors)
-                else (0, 0, 0)
+        if self._geometry_dirty:
+            if not self._vertex_buffer.isCreated() and not self._vertex_buffer.create():
+                self._render_error = self.tr("The VXL vertex buffer could not be created.")
+                return
+            if not self._vertex_buffer.bind():
+                self._render_error = self.tr("The VXL vertex buffer could not be bound.")
+                return
+            self._vertex_buffer.allocate(
+                self._model.vertices,
+                len(self._model.vertices),
             )
-            image.setPixelColor(index, 0, QColor(red, green, blue))
-        if self._palette_texture is not None:
-            self._palette_texture.destroy()
-        self._palette_texture = QOpenGLTexture(image)
-        self._palette_texture.setMinificationFilter(QOpenGLTexture.Filter.Nearest)
-        self._palette_texture.setMagnificationFilter(QOpenGLTexture.Filter.Nearest)
-        self._palette_dirty = False
+            self._vertex_buffer.release()
+            self._vertex_count = self._model.vertex_count
+            self._geometry_dirty = False
+        if self._palette_dirty:
+            colors = self._palette.colors[:256]
+            if len(colors) < 256:
+                colors = (*colors, *((0, 0, 0),) * (256 - len(colors)))
+            palette_data = bytes(component for color in colors for component in color)
+            self._palette_texture.setData(
+                QOpenGLTexture.PixelFormat.RGB,
+                QOpenGLTexture.PixelType.UInt8,
+                palette_data,
+            )
+            self._palette_dirty = False
 
     def paintGL(self) -> None:
         gl = self._gl
         if gl is None:
             return
-        background = self.palette().color(QPalette.ColorRole.Base)
+        painter = QPainter(self)
+        painter.fillRect(
+            self.rect(),
+            _preview_background_brush(
+                self._background_mode,
+                self._custom_background_color,
+            ),
+        )
+        painter.end()
         gl.glViewport(
             0,
             0,
             round(self.width() * self.devicePixelRatioF()),
             round(self.height() * self.devicePixelRatioF()),
         )
-        gl.glClearColor(background.redF(), background.greenF(), background.blueF(), 1.0)
-        gl.glClear(_GL_COLOR_BUFFER_BIT | _GL_DEPTH_BUFFER_BIT)
+        gl.glEnable(_GL_DEPTH_TEST)
+        gl.glDepthFunc(_GL_LEQUAL)
+        gl.glDepthMask(True)
+        gl.glClear(_GL_DEPTH_BUFFER_BIT)
         if self._render_error:
             painter = QPainter(self)
-            painter.setPen(self.palette().color(QPalette.ColorRole.Text))
+            painter.setPen(self._render_text_color)
             painter.drawText(
                 self.rect(),
                 Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
                 self._render_error,
             )
+            painter.end()
             return
-        if self._model is None or self._program is None or self._vertex_count <= 0:
+        if self._model is None or self._program is None:
             return
-        if self._palette_dirty:
-            self._upload_palette()
-        if self._palette_texture is None:
+        if self._geometry_dirty or self._palette_dirty:
+            self._upload_model()
+        if self._vertex_count <= 0:
             return
 
         aspect = max(1.0, self.width()) / max(1.0, self.height())
@@ -551,7 +780,11 @@ void main() {
         projection.perspective(self._VERTICAL_FOV, aspect, 0.1, 100.0)
         view = QMatrix4x4()
         view.lookAt(
-            QVector3D(0.0, -self._CAMERA_DISTANCE, self._CAMERA_DISTANCE * 0.62),
+            QVector3D(
+                0.0,
+                -self._CAMERA_DISTANCE,
+                self._CAMERA_DISTANCE * self._CAMERA_ELEVATION_RATIO,
+            ),
             QVector3D(0.0, 0.0, 0.0),
             QVector3D(0.0, 0.0, 1.0),
         )
@@ -560,20 +793,26 @@ void main() {
         model.rotate(self._yaw, 0.0, 0.0, 1.0)
         model.rotate(self._pitch, 1.0, 0.0, 0.0)
         model.scale(self._zoom)
+        mvp = projection * view * model
 
         if not self._program.bind() or not self._vertex_buffer.bind():
             self._render_error = self.tr("The VXL renderer could not bind its resources.")
             self._program.release()
             self.update()
             return
+        self._program.setUniformValue("uMvp", mvp)
+        if self._palette_texture is None or not self._palette_texture.isCreated():
+            self._render_error = self.tr("The VXL renderer could not bind its resources.")
+            self._vertex_buffer.release()
+            self._program.release()
+            self.update()
+            return
         self._palette_texture.bind(0)
-        self._program.setUniformValue("uMvp", projection * view * model)
-        self._program.setUniformValue("uNormalMatrix", model.normalMatrix())
         self._program.setUniformValue("uPalette", 0)
         stride = self._VERTEX_STRIDE
         position_location = self._program.attributeLocation("aPosition")
         normal_location = self._program.attributeLocation("aNormal")
-        color_location = self._program.attributeLocation("aColorIndex")
+        color_location = self._program.attributeLocation("aColor")
         for location, offset, size in (
             (position_location, 0, 3),
             (normal_location, 12, 3),
@@ -581,12 +820,79 @@ void main() {
         ):
             self._program.enableAttributeArray(location)
             self._program.setAttributeBuffer(location, _GL_FLOAT, offset, size, stride)
-        gl.glDrawArrays(_GL_TRIANGLES, 0, self._vertex_count)
+        frame = self._model.frame_transforms[self._frame_index]
+        for limb_index, (first_vertex, vertex_count) in enumerate(self._model.limb_ranges):
+            if not vertex_count:
+                continue
+            values = frame[limb_index]
+            part = QMatrix4x4()
+            for row in range(4):
+                offset = row * 4
+                part.setRow(
+                    row,
+                    QVector4D(*values[offset : offset + 4]),
+                )
+            self._program.setUniformValue("uPart", part)
+            self._program.setUniformValue(
+                "uNormalMatrix",
+                (model * part).normalMatrix(),
+            )
+            gl.glDrawArrays(_GL_TRIANGLES, first_vertex, vertex_count)
         for location in (position_location, normal_location, color_location):
             self._program.disableAttributeArray(location)
-        self._palette_texture.release()
         self._vertex_buffer.release()
+        self._palette_texture.release()
         self._program.release()
+        painter = QPainter(self)
+        self._paint_model_bounds(painter, mvp)
+        painter.end()
+
+    def _paint_model_bounds(self, painter: QPainter, mvp: QMatrix4x4) -> None:
+        model = self._model
+        if (
+            not self._asset_boundaries_visible
+            or model is None
+            or not model.frame_bounds
+        ):
+            return
+        bounds = model.frame_bounds[
+            min(self._frame_index, len(model.frame_bounds) - 1)
+        ]
+        lower = bounds[:3]
+        upper = bounds[3:]
+        projected = []
+        for corner_mask in range(8):
+            corner = QVector4D(
+                upper[0] if corner_mask & 1 else lower[0],
+                upper[1] if corner_mask & 2 else lower[1],
+                upper[2] if corner_mask & 4 else lower[2],
+                1.0,
+            )
+            clip = mvp.map(corner)
+            if clip.w() <= 0:
+                projected.append(None)
+            else:
+                x = (clip.x() / clip.w() + 1.0) * self.width() * 0.5
+                y = (1.0 - clip.y() / clip.w()) * self.height() * 0.5
+                projected.append(QPointF(x, y))
+
+        edges = tuple(
+            (first, second)
+            for first in range(8)
+            for second in range(first + 1, 8)
+            if (first ^ second).bit_count() == 1
+        )
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(QColor(0, 0, 0, 210), 3))
+        for first, second in edges:
+            if projected[first] is not None and projected[second] is not None:
+                painter.drawLine(projected[first], projected[second])
+        painter.setPen(QPen(QColor(255, 255, 255, 225), 1, Qt.PenStyle.DashLine))
+        for first, second in edges:
+            if projected[first] is not None and projected[second] is not None:
+                painter.drawLine(projected[first], projected[second])
+        painter.restore()
 
     def wheelEvent(self, event) -> None:
         delta = event.angleDelta().y() or event.pixelDelta().y()
@@ -648,12 +954,20 @@ void main() {
 # @arch mix-browser.entry-preview component | en: Renders selected MIX entry previews | zh: 呈现选中的 MIX 条目预览
 class EntryPreviewPane(QWidget):
     auto_play_preference_changed = Signal(str, bool)
+    background_preference_changed = Signal(str, str)
+    boundary_visibility_preference_changed = Signal(bool)
 
-    # VXL has no native display size; keep the requested 20% initial zoom.
-    _VXL_DEFAULT_DISPLAY_SCALE = 0.2
+    # Keep VXL and HVA geometry in native game units with one shared view scale.
+    _VXL_DEFAULT_DISPLAY_SCALE = 1.0
     _MIN_IMAGE_ZOOM = 0.001
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        renderer_resources: VoxelRendererResources | None = None,
+        interaction_help: InteractionHelpCatalog | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setMinimumWidth(280)
         self._result: EntryPreviewResult | None = None
@@ -661,10 +975,14 @@ class EntryPreviewPane(QWidget):
         self._palette_index = 0
         self._palette_manually_selected = False
         self._image_zoom = 1.0
-        self._auto_play_animations = False
+        self._auto_play_shp_animations = False
+        self._auto_play_hva_animations = False
         self._auto_play_audio = False
         self._auto_play_video = False
         self._combine_shp_shadow_frames = False
+        self._preview_background_mode = "checkerboard"
+        self._custom_background_color = "#00a000"
+        self._asset_boundaries_visible = False
         self._is_active = False
         self._resume_animation_on_activate = False
         self._resume_media_on_activate = False
@@ -721,7 +1039,7 @@ class EntryPreviewPane(QWidget):
         self._play_button.clicked.connect(self._toggle_animation)
         self._auto_play_animation_checkbox = self._create_auto_play_checkbox(
             self._image_page,
-            "animations",
+            "animation",
             QT_TRANSLATE_NOOP(
                 "EntryPreviewPane",
                 "Automatically play SHP animations when previewed",
@@ -799,11 +1117,37 @@ class EntryPreviewPane(QWidget):
         zoom_layout.addWidget(self._zoom_level_label)
         zoom_layout.addWidget(self._zoom_in_button)
         zoom_layout.addWidget(self._zoom_reset_button)
+        self._interaction_help_button = (
+            InteractionHelpButton(
+                interaction_help,
+                self.tr("Preview interactions"),
+                self._image_page,
+                group=self.tr("Image and model previews"),
+                size=BROWSER_TOOLBAR_CONTROL_HEIGHT,
+                align_popup_right=True,
+            )
+            if interaction_help is not None
+            else None
+        )
+        if self._interaction_help_button is not None:
+            zoom_layout.addWidget(self._interaction_help_button)
         image_layout.addLayout(zoom_layout)
 
         self._image_scene = QGraphicsScene(self._image_page)
         self._image_item = QGraphicsPixmapItem()
         self._image_scene.addItem(self._image_item)
+        self._image_boundary_shadow = QGraphicsRectItem(self._image_item)
+        self._image_boundary_shadow.setZValue(1)
+        shadow_pen = QPen(QColor(0, 0, 0, 210), 3)
+        shadow_pen.setCosmetic(True)
+        self._image_boundary_shadow.setPen(shadow_pen)
+        self._image_boundary = QGraphicsRectItem(self._image_item)
+        self._image_boundary.setZValue(2)
+        boundary_pen = QPen(QColor(255, 255, 255, 225), 1, Qt.PenStyle.DashLine)
+        boundary_pen.setCosmetic(True)
+        self._image_boundary.setPen(boundary_pen)
+        self._image_boundary.hide()
+        self._image_boundary_shadow.hide()
         self._image_view = _ZoomableImageView(
             self._image_scene,
             self._image_item,
@@ -819,7 +1163,10 @@ class EntryPreviewPane(QWidget):
         self._image_view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self._image_view.zoom_requested.connect(self._zoom_image_at_cursor)
         image_layout.addWidget(self._image_view, 1)
-        self._voxel_view = _VoxelModelView(self._image_page)
+        self._voxel_view = _VoxelModelView(
+            self._image_page,
+            renderer_resources,
+        )
         self._voxel_view.zoom_changed.connect(self._sync_voxel_zoom)
         self._voxel_view.hide()
         image_layout.addWidget(self._voxel_view, 1)
@@ -835,17 +1182,19 @@ class EntryPreviewPane(QWidget):
         self._media_page = QWidget(self)
         media_layout = QVBoxLayout(self._media_page)
         media_layout.setContentsMargins(0, 0, 0, 0)
-        self._media_player = VlcMediaPlayer(self._media_page)
+        self._media_canvas = _MediaPreviewSurface(self._media_page)
+        self._media_player = VlcMediaPlayer(self._media_canvas)
         self._media_player.playback_state_changed.connect(self._sync_vlc_media_controls)
         self._media_player.position_changed.connect(self._sync_media_position)
         self._media_player.duration_changed.connect(self._sync_media_duration)
+        self._media_player.video_size_changed.connect(self._media_canvas.set_video_size)
         self._media_player.media_ready_changed.connect(self._on_media_ready_changed)
         self._media_player.error_occurred.connect(self._on_vlc_media_error)
-        self._media_placeholder = QLabel("", self._media_page)
+        self._media_placeholder = QLabel("", self._media_canvas)
         self._media_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._media_placeholder.setWordWrap(True)
-        media_layout.addWidget(self._media_player, 1)
-        media_layout.addWidget(self._media_placeholder, 1)
+        self._media_canvas.set_content(self._media_player, self._media_placeholder)
+        media_layout.addWidget(self._media_canvas, 1)
         transport = QHBoxLayout()
         self._auto_play_audio_checkbox = self._create_auto_play_checkbox(
             self._media_page,
@@ -896,13 +1245,71 @@ class EntryPreviewPane(QWidget):
             self._media_page,
         ):
             self._stack.addWidget(page)
+        self._background_controls = QWidget(self)
+        background_layout = QHBoxLayout(self._background_controls)
+        background_layout.setContentsMargins(0, 0, 0, 0)
+        background_layout.setSpacing(6)
+        self._background_label = QLabel(
+            self.tr("Background"),
+            self._background_controls,
+        )
+        self._background_label.setFixedHeight(BROWSER_TOOLBAR_CONTROL_HEIGHT)
+        self._background_combo = QComboBox(self._background_controls)
+        self._background_combo.setFixedHeight(BROWSER_TOOLBAR_CONTROL_HEIGHT)
+        self._background_combo.setToolTip(
+            self.tr("Changes the preview background; it does not remove colors from the asset.")
+        )
+        self._background_combo.addItem(self.tr("Checkerboard"), "checkerboard")
+        self._background_combo.addItem(self.tr("Dark"), "dark")
+        self._background_combo.addItem(self.tr("Light"), "light")
+        self._background_combo.addItem(self.tr("Green"), "green")
+        self._background_combo.addItem(self.tr("Custom color"), "custom")
+        self._background_combo.currentIndexChanged.connect(
+            self._select_preview_background
+        )
+        self._background_color_button = QToolButton(self._background_controls)
+        self._background_color_button.setFixedSize(
+            BROWSER_TOOLBAR_CONTROL_HEIGHT,
+            BROWSER_TOOLBAR_CONTROL_HEIGHT,
+        )
+        self._background_color_button.setToolTip(
+            self.tr("Choose preview background color")
+        )
+        self._background_color_button.setAccessibleName(
+            self.tr("Choose preview background color")
+        )
+        self._background_color_button.clicked.connect(
+            self._choose_preview_background_color
+        )
+        self._asset_boundaries_checkbox = QCheckBox(
+            self.tr("Show asset boundaries"),
+            self._background_controls,
+        )
+        self._asset_boundaries_checkbox.setFixedHeight(
+            BROWSER_TOOLBAR_CONTROL_HEIGHT
+        )
+        self._asset_boundaries_checkbox.setChecked(False)
+        self._asset_boundaries_checkbox.toggled.connect(
+            self._on_asset_boundaries_toggled
+        )
+        background_layout.addWidget(self._background_label)
+        background_layout.addWidget(self._background_combo)
+        background_layout.addWidget(self._background_color_button)
+        background_layout.addWidget(self._asset_boundaries_checkbox)
+        background_layout.addStretch(1)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._background_controls)
         layout.addWidget(self._stack)
 
         self._animation_timer = QTimer(self)
         self._animation_timer.setInterval(100)
         self._animation_timer.timeout.connect(self._advance_frame)
+        self.set_preview_background(
+            self._preview_background_mode,
+            self._custom_background_color,
+        )
+        self._background_controls.hide()
 
     @staticmethod
     def _message_page(text: str) -> QLabel:
@@ -910,6 +1317,99 @@ class EntryPreviewPane(QWidget):
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setWordWrap(True)
         return label
+
+    def set_preview_background(self, mode: str, custom_color: str) -> None:
+        if mode not in {"checkerboard", "dark", "light", "green", "custom"}:
+            mode = "checkerboard"
+        color = QColor(custom_color)
+        if not color.isValid():
+            color = QColor("#00a000")
+        custom_color = color.name(QColor.NameFormat.HexRgb)
+        self._preview_background_mode = mode
+        self._custom_background_color = custom_color
+
+        blocker = QSignalBlocker(self._background_combo)
+        index = self._background_combo.findData(mode)
+        if index >= 0:
+            self._background_combo.setCurrentIndex(index)
+        del blocker
+        self._image_view.setBackgroundBrush(
+            _preview_background_brush(mode, custom_color)
+        )
+        self._voxel_view.set_preview_background(mode, custom_color)
+        self._media_canvas.set_preview_background(mode, custom_color)
+        self._refresh_background_color_button(color)
+
+    def set_asset_boundaries_visible(self, visible: bool) -> None:
+        self._asset_boundaries_visible = bool(visible)
+        blocker = QSignalBlocker(self._asset_boundaries_checkbox)
+        self._asset_boundaries_checkbox.setChecked(self._asset_boundaries_visible)
+        del blocker
+        self._voxel_view.set_asset_boundaries_visible(
+            self._asset_boundaries_visible
+        )
+        self._media_canvas.set_asset_boundaries_visible(
+            self._asset_boundaries_visible
+        )
+        self._update_image_boundary_visibility()
+
+    def _on_asset_boundaries_toggled(self, visible: bool) -> None:
+        self.set_asset_boundaries_visible(visible)
+        self.boundary_visibility_preference_changed.emit(bool(visible))
+
+    def _select_preview_background(self, index: int) -> None:
+        mode = self._background_combo.itemData(index)
+        if not mode:
+            return
+        if mode == "custom":
+            self._choose_preview_background_color()
+            return
+        self.set_preview_background(mode, self._custom_background_color)
+        self.background_preference_changed.emit(
+            self._preview_background_mode,
+            self._custom_background_color,
+        )
+
+    def _choose_preview_background_color(self) -> None:
+        selected = QColorDialog.getColor(
+            QColor(self._custom_background_color),
+            self,
+            self.tr("Choose preview background color"),
+        )
+        if not selected.isValid():
+            blocker = QSignalBlocker(self._background_combo)
+            index = self._background_combo.findData(self._preview_background_mode)
+            if index >= 0:
+                self._background_combo.setCurrentIndex(index)
+            del blocker
+            return
+        color = selected.name(QColor.NameFormat.HexRgb)
+        self.set_preview_background("custom", color)
+        self.background_preference_changed.emit("custom", color)
+
+    def _refresh_background_color_button(self, color: QColor) -> None:
+        swatch = QPixmap(18, 18)
+        swatch.fill(color)
+        painter = QPainter(swatch)
+        painter.setPen(QPen(QColor(0, 0, 0, 210), 1))
+        painter.drawRect(0, 0, 17, 17)
+        painter.end()
+        self._background_color_button.setIcon(QIcon(swatch))
+        self._background_color_button.setIconSize(QSize(18, 18))
+
+    def _update_background_controls(self) -> None:
+        result = self._result
+        supported = result is not None and (
+            result.kind in {"image", "model"}
+            or result.kind == "media"
+        )
+        has_boundaries = result is not None and (
+            result.is_shp
+            or result.voxel_model is not None
+            or (result.kind == "media" and result.is_video)
+        )
+        self._background_controls.setVisible(supported)
+        self._asset_boundaries_checkbox.setVisible(has_boundaries)
 
     def _create_auto_play_checkbox(
         self,
@@ -936,6 +1436,7 @@ class EntryPreviewPane(QWidget):
     def show_empty(self) -> None:
         self._reset_media()
         self._result = None
+        self._update_background_controls()
         self._voxel_view.clear_model()
         self._document.show_empty()
         self._dat_model_clear()
@@ -944,6 +1445,7 @@ class EntryPreviewPane(QWidget):
     def show_loading(self) -> None:
         self._reset_media()
         self._result = None
+        self._update_background_controls()
         self._voxel_view.clear_model()
         self._document.show_loading()
         self._dat_model_clear()
@@ -958,6 +1460,7 @@ class EntryPreviewPane(QWidget):
         self._combine_shp_shadow_frames = False
         self._shadow_combine_button.hide()
         self._result = result
+        self._update_background_controls()
         if result.voxel_model is None:
             self._voxel_view.clear_model()
         if result.kind == "dat":
@@ -984,7 +1487,10 @@ class EntryPreviewPane(QWidget):
             self._prepare_image(result)
             self._stack.setCurrentWidget(self._image_page)
             self._reset_image_zoom()
-            if self._auto_play_animations and self._display_frame_count(result) > 1:
+            if (
+                self._supports_animation_playback(result)
+                and self._auto_play_animation_for_result(result)
+            ):
                 if self._is_active:
                     self._animation_timer.start()
                     self._play_button.setText(self.tr("Pause"))
@@ -1024,15 +1530,27 @@ class EntryPreviewPane(QWidget):
     def set_auto_play_preferences(
         self,
         *,
-        animations: bool,
+        shp_animations: bool,
+        hva_animations: bool,
         audio: bool,
         video: bool,
     ) -> None:
-        self._auto_play_animations = animations
+        self._auto_play_shp_animations = shp_animations
+        self._auto_play_hva_animations = hva_animations
         self._auto_play_audio = audio
         self._auto_play_video = video
+        animation_preference = (
+            self._animation_preference_for_result(self._result)
+            if self._result is not None
+            else None
+        )
+        animation_enabled = (
+            self._auto_play_animation_preference(animation_preference)
+            if animation_preference is not None
+            else False
+        )
         for button, enabled in (
-            (self._auto_play_animation_checkbox, animations),
+            (self._auto_play_animation_checkbox, animation_enabled),
             (self._auto_play_audio_checkbox, audio),
             (self._auto_play_video_checkbox, video),
         ):
@@ -1134,13 +1652,20 @@ class EntryPreviewPane(QWidget):
         self._media_player.prepare_video_surface()
 
     def _prepare_image(self, result: EntryPreviewResult) -> None:
+        self._animation_timer.stop()
+        self._resume_animation_on_activate = False
         self._frame_index = 0
         self._palette_manually_selected = False
         is_voxel_model = result.voxel_model is not None
         self._image_view.setVisible(not is_voxel_model)
         self._voxel_view.setVisible(is_voxel_model)
-        self._image_notice.setText(self.tr(result.message) if result.message else "")
-        self._image_notice.setVisible(bool(result.message))
+        image_notices = tuple(
+            self.tr(notice)
+            for notice in (result.preview_notice, result.message)
+            if notice
+        )
+        self._image_notice.setText("\n".join(image_notices))
+        self._image_notice.setVisible(bool(image_notices))
         can_pair_shadow_frames = (
             result.is_shp
             and len(result.frames) >= 2
@@ -1166,7 +1691,7 @@ class EntryPreviewPane(QWidget):
                 result.voxel_model,
                 result.palettes[self._palette_index],
             )
-            self._zoom_reset_button.setToolTip(self.tr("Reset VXL view and zoom to 20%"))
+            self._zoom_reset_button.setToolTip(self.tr("Reset VXL view to native scale"))
             self._zoom_level_label.setToolTip(self.tr("Current VXL zoom"))
         else:
             self._zoom_reset_button.setToolTip(self.tr("Reset image size and position to 100%"))
@@ -1174,6 +1699,8 @@ class EntryPreviewPane(QWidget):
         self._refresh_image()
 
     def _display_frame_count(self, result: EntryPreviewResult) -> int:
+        if result.voxel_model is not None:
+            return result.voxel_model.frame_count
         if (
             self._combine_shp_shadow_frames
             and result.is_shp
@@ -1181,6 +1708,34 @@ class EntryPreviewPane(QWidget):
         ):
             return len(result.frames) // 2
         return len(result.frames)
+
+    def _supports_animation_playback(self, result: EntryPreviewResult) -> bool:
+        return (
+            self._animation_preference_for_result(result) is not None
+            and self._display_frame_count(result) > 1
+        )
+
+    @staticmethod
+    def _animation_preference_for_result(
+        result: EntryPreviewResult,
+    ) -> str | None:
+        if result.is_shp:
+            return "shp_animations"
+        if result.voxel_model is not None and result.voxel_model.has_hva:
+            return "hva_animations"
+        return None
+
+    def _auto_play_animation_preference(self, preference: str) -> bool:
+        if preference == "hva_animations":
+            return self._auto_play_hva_animations
+        return self._auto_play_shp_animations
+
+    def _auto_play_animation_for_result(self, result: EntryPreviewResult) -> bool:
+        preference = self._animation_preference_for_result(result)
+        return (
+            preference is not None
+            and self._auto_play_animation_preference(preference)
+        )
 
     def _populate_frame_choices(self, result: EntryPreviewResult) -> None:
         frame_count = self._display_frame_count(result)
@@ -1194,14 +1749,32 @@ class EntryPreviewPane(QWidget):
             )
         del blocker
         has_multiple_frames = frame_count > 1
+        supports_animation_playback = self._supports_animation_playback(result)
         self._frame_label.setVisible(has_multiple_frames)
         self._frame_combo.setVisible(has_multiple_frames)
-        self._play_button.setVisible(has_multiple_frames)
-        self._auto_play_animation_checkbox.setVisible(
-            result.is_shp and has_multiple_frames
-        )
+        self._play_button.setVisible(supports_animation_playback)
+        self._auto_play_animation_checkbox.setVisible(supports_animation_playback)
+        animation_preference = self._animation_preference_for_result(result)
+        if animation_preference is not None:
+            if animation_preference == "hva_animations":
+                self._auto_play_animation_checkbox.setToolTip(
+                    self.tr("Automatically play HVA animations when previewed")
+                )
+                self._auto_play_animation_checkbox.setAccessibleName(
+                    self.tr("Auto-play HVA animations")
+                )
+            else:
+                self._auto_play_animation_checkbox.setToolTip(
+                    self.tr("Automatically play SHP animations when previewed")
+                )
+                self._auto_play_animation_checkbox.setAccessibleName(
+                    self.tr("Auto-play SHP animations")
+                )
         blocker = QSignalBlocker(self._auto_play_animation_checkbox)
-        self._auto_play_animation_checkbox.setChecked(self._auto_play_animations)
+        self._auto_play_animation_checkbox.setChecked(
+            animation_preference is not None
+            and self._auto_play_animation_preference(animation_preference)
+        )
         del blocker
 
     def _populate_palette_choices(
@@ -1284,8 +1857,13 @@ class EntryPreviewPane(QWidget):
                 ),
                 result.default_palette_index,
             )
-        self._image_notice.setText(self.tr(result.message) if result.message else "")
-        self._image_notice.setVisible(bool(result.message))
+        image_notices = tuple(
+            self.tr(notice)
+            for notice in (result.preview_notice, result.message)
+            if notice
+        )
+        self._image_notice.setText("\n".join(image_notices))
+        self._image_notice.setVisible(bool(image_notices))
         self._populate_palette_choices(result, selected_index)
         if result.voxel_model is not None and result.palettes:
             self._voxel_view.set_palette(result.palettes[self._palette_index])
@@ -1293,10 +1871,15 @@ class EntryPreviewPane(QWidget):
             self._refresh_image()
 
     def show_palette_lookup_failure(self) -> None:
-        if self._image_notice.text() == self.tr("Checking configured game palettes..."):
-            self._image_notice.setText(
-                self.tr("Game palettes could not be loaded; the current palette is shown.")
-            )
+        if self.tr("Checking configured game palettes...") not in self._image_notice.text():
+            return
+        notices = []
+        if self._result is not None and self._result.preview_notice:
+            notices.append(self.tr(self._result.preview_notice))
+        notices.append(
+            self.tr("Game palettes could not be loaded; the current palette is shown.")
+        )
+        self._image_notice.setText("\n".join(notices))
 
     def _show_palette_selection_help(self) -> None:
         dialog = QDialog(self)
@@ -1344,7 +1927,10 @@ class EntryPreviewPane(QWidget):
         if result is None:
             return
         if result.voxel_model is not None:
+            self._image_boundary.hide()
+            self._image_boundary_shadow.hide()
             self._image_view.hide()
+            self._voxel_view.set_frame(self._frame_index)
             self._voxel_view.show()
             return
         self._voxel_view.hide()
@@ -1394,6 +1980,24 @@ class EntryPreviewPane(QWidget):
         pixmap = QPixmap.fromImage(image) if not image.isNull() else QPixmap()
         self._image_item.setPixmap(pixmap)
         self._image_scene.setSceneRect(self._image_item.boundingRect())
+        image_bounds = self._image_item.boundingRect()
+        if result.is_shp and not pixmap.isNull():
+            boundary = image_bounds.adjusted(0.5, 0.5, -0.5, -0.5)
+            self._image_boundary_shadow.setRect(boundary)
+            self._image_boundary.setRect(boundary)
+        self._update_image_boundary_visibility()
+
+    def _update_image_boundary_visibility(self) -> None:
+        result = self._result
+        pixmap = self._image_item.pixmap()
+        visible = bool(
+            self._asset_boundaries_visible
+            and result is not None
+            and result.is_shp
+            and not pixmap.isNull()
+        )
+        self._image_boundary.setVisible(visible)
+        self._image_boundary_shadow.setVisible(visible)
 
     def _step_image_zoom(self, steps: float) -> None:
         zoom = min(
@@ -1436,7 +2040,7 @@ class EntryPreviewPane(QWidget):
             self._voxel_view.reset_view()
             self._image_zoom = self._VXL_DEFAULT_DISPLAY_SCALE
             self._zoom_reset_button.setToolTip(
-                self.tr("Reset VXL view to its default size, fitting the preview area")
+                self.tr("Reset VXL view to native scale")
             )
         else:
             self._image_zoom = 1.0
@@ -1456,12 +2060,7 @@ class EntryPreviewPane(QWidget):
         ):
             return
         if self._result.voxel_model is not None:
-            if self._voxel_view.width() <= 1 or self._voxel_view.height() <= 1:
-                self._queue_default_fit()
-                return
-            self._image_zoom = self._voxel_view.fit_default_zoom(
-                self._VXL_DEFAULT_DISPLAY_SCALE
-            )
+            self._image_zoom = self._VXL_DEFAULT_DISPLAY_SCALE
             self._voxel_view.set_zoom(self._image_zoom)
         else:
             bounds = self._image_item.boundingRect()
@@ -1573,9 +2172,19 @@ class EntryPreviewPane(QWidget):
         enabled: bool,
     ) -> None:
         result = self._result
-        if preference == "animations":
-            self._auto_play_animations = enabled
-            if result is not None and result.is_shp and self._display_frame_count(result) > 1:
+        if preference == "animation":
+            animation_preference = (
+                self._animation_preference_for_result(result)
+                if result is not None
+                else None
+            )
+            if animation_preference is None:
+                return
+            if animation_preference == "hva_animations":
+                self._auto_play_hva_animations = enabled
+            else:
+                self._auto_play_shp_animations = enabled
+            if self._supports_animation_playback(result):
                 if enabled:
                     if self._is_active:
                         self._animation_timer.start()
@@ -1586,6 +2195,7 @@ class EntryPreviewPane(QWidget):
                     self._animation_timer.stop()
                     self._resume_animation_on_activate = False
                     self._play_button.setText(self.tr("Play"))
+            preference = animation_preference
         else:
             is_video = preference == "video"
             if is_video:
@@ -1624,7 +2234,8 @@ class EntryPreviewPane(QWidget):
 
     def _prepare_media(self, result: EntryPreviewResult) -> None:
         self._media_started = False
-        self._media_placeholder.clear()
+        self._media_canvas.set_video_mode(result.is_video)
+        self._media_canvas.set_placeholder_text("")
         self._media_player.setVisible(result.is_video)
         self._media_placeholder.setVisible(not result.is_video)
         self._auto_play_audio_checkbox.setVisible(not result.is_video)
@@ -1637,7 +2248,7 @@ class EntryPreviewPane(QWidget):
             button.setChecked(enabled)
             del blocker
         if not result.is_video:
-            self._media_placeholder.setText(self.tr("WAV audio"))
+            self._media_canvas.set_placeholder_text(self.tr("WAV audio"))
         self._position.setRange(0, 0)
         self._time.setText(self.tr("00:00 / 00:00"))
         self._media_play.setEnabled(False)
@@ -1651,22 +2262,25 @@ class EntryPreviewPane(QWidget):
                 self._show_video_ready_prompt()
             else:
                 self._media_player.hide()
-                self._media_placeholder.setText(self.tr("WAV audio"))
+                self._media_canvas.set_placeholder_text(self.tr("WAV audio"))
                 self._media_placeholder.show()
         elif self._media_player.has_pending_media:
             self._media_player.hide()
-            self._media_placeholder.setText(self.tr("Preparing media playback..."))
+            self._media_canvas.set_placeholder_text(
+                self.tr("Preparing media playback...")
+            )
             self._media_placeholder.show()
 
     def _show_video_ready_prompt(self) -> None:
         self._media_player.hide()
-        self._media_placeholder.setText(
+        self._media_canvas.set_placeholder_text(
             self.tr("Click Play to start the video preview.")
         )
         self._media_placeholder.show()
 
     def _reset_media(self) -> None:
         self._animation_timer.stop()
+        self._media_canvas.set_video_mode(False)
         self._auto_play_audio_checkbox.hide()
         self._auto_play_video_checkbox.hide()
         self._default_fit_pending = False
@@ -1727,7 +2341,7 @@ class EntryPreviewPane(QWidget):
                 self._show_video_ready_prompt()
         else:
             self._media_player.hide()
-            self._media_placeholder.setText(self.tr("WAV audio"))
+            self._media_canvas.set_placeholder_text(self.tr("WAV audio"))
             self._media_placeholder.show()
         if self._resume_media_on_activate and self._is_active:
             self._resume_media_on_activate = False
@@ -1771,5 +2385,5 @@ class EntryPreviewPane(QWidget):
         self._media_play.setEnabled(False)
         self._resume_media_on_activate = False
         self._media_player.hide()
-        self._media_placeholder.setText(message)
+        self._media_canvas.set_placeholder_text(message)
         self._media_placeholder.setVisible(True)

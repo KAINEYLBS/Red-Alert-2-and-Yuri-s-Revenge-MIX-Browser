@@ -8,6 +8,10 @@ from mix_browser.features.archive.domain import MixEntry
 from mix_browser.features.browser.formatting import format_byte_size
 from mix_browser.features.browser.file_type_support import browser_entry_type_display
 from mix_browser.features.browser.system_icons import system_icon_for_object
+from mix_browser.shared.table_sorting import (
+    reorder_model_rows_preserving_indexes,
+    stable_multi_sort,
+)
 
 
 class MixEntryTableModel(QAbstractTableModel):
@@ -18,6 +22,7 @@ class MixEntryTableModel(QAbstractTableModel):
 
     def __init__(self, entries: tuple[MixEntry, ...], parent=None) -> None:
         super().__init__(parent)
+        self._original_entries = list(entries)
         self._entries = list(entries)
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
@@ -40,8 +45,12 @@ class MixEntryTableModel(QAbstractTableModel):
             return None
         return self._entries[row]
 
+    def row_object_at(self, row: int) -> MixEntry | None:
+        return self.entry_at(row)
+
     def replace_entries(self, entries: tuple[MixEntry, ...]) -> None:
         self.beginResetModel()
+        self._original_entries = list(entries)
         self._entries = list(entries)
         self.endResetModel()
 
@@ -91,18 +100,39 @@ class MixEntryTableModel(QAbstractTableModel):
     def sort(self, column: int, order: Qt.SortOrder = Qt.SortOrder.AscendingOrder) -> None:
         if not 0 <= column < len(self.HEADERS):
             return
-        self.layoutAboutToBeChanged.emit()
-        reverse = order == Qt.SortOrder.DescendingOrder
+        self.sort_by_columns(((column, order),))
+
+    def sort_by_columns(
+        self,
+        sort_keys: tuple[tuple[int, Qt.SortOrder], ...],
+    ) -> None:
+        sort_keys = tuple(
+            (column, order)
+            for column, order in sort_keys
+            if 0 <= column < len(self.HEADERS)
+        )
+        entries = stable_multi_sort(
+            self._original_entries,
+            sort_keys,
+            self._sort_key,
+        )
+
+        reorder_model_rows_preserving_indexes(
+            self,
+            self._entries,
+            entries,
+            lambda rows: setattr(self, "_entries", rows),
+        )
+
+    @staticmethod
+    def _sort_key(column: int, entry: MixEntry):
         if column == 0:
-            key = lambda entry: (entry.name or f"{entry.file_id:08x}").casefold()
-        elif column == 1:
-            key = lambda entry: browser_entry_type_display(
+            return (entry.name or f"{entry.file_id:08x}").casefold()
+        if column == 1:
+            return browser_entry_type_display(
                 entry.file_type or "",
                 entry.name or "",
             ).casefold()
-        elif column == 2:
-            key = lambda entry: entry.size
-        else:
-            key = lambda entry: entry.file_id
-        self._entries.sort(key=key, reverse=reverse)
-        self.layoutChanged.emit()
+        if column == 2:
+            return entry.size
+        return entry.file_id

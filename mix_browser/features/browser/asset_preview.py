@@ -46,7 +46,7 @@ from mix_browser.features.browser.file_type_support import (
     MAX_IMAGE_PREVIEW_BYTES as _MAX_IMAGE_BYTES,
     MAX_IMAGE_PREVIEW_PIXELS as _MAX_IMAGE_PIXELS,
     MAX_MEDIA_PREVIEW_BYTES as _MAX_MEDIA_BYTES,
-    is_previewable_file_name,
+    is_previewable_file,
 )
 
 
@@ -54,6 +54,8 @@ _MAX_SHP_FRAMES = 2048
 _MAX_VXL_LIMBS = 32
 _MAX_VXL_VOXELS = 300_000
 _MAX_VXL_SURFACE_FACES = 120_000
+_MAX_HVA_FRAMES = 1024
+_MAX_HVA_BYTES = 16 * 1024 * 1024
 _VXL_FIXED_HEADER_SIZE = 802
 _VXL_LIMB_HEADER_SIZE = 28
 _VXL_LIMB_FOOTER_SIZE = 92
@@ -250,11 +252,27 @@ _GAME_ART_RULE_INDEX_CACHE: dict[
 _MAX_GAME_ART_RULE_INDEX_CACHE = 4
 
 
+# @arch mix-browser.voxel-preview-model model | en: Holds VXL surface geometry, frame transforms, and per-frame bounds for preview rendering | zh: 保存 VXL 表面几何、逐帧变换及预览范围
 @dataclass(frozen=True)
 class VoxelModel:
     vertices: bytes
     vertex_count: int
     voxel_count: int
+    limb_ranges: tuple[tuple[int, int], ...]
+    frame_transforms: tuple[tuple[tuple[float, ...], ...], ...]
+    has_hva: bool
+    frame_bounds: tuple[tuple[float, float, float, float, float, float], ...] = ()
+
+    @property
+    def frame_count(self) -> int:
+        return len(self.frame_transforms)
+
+
+# @arch mix-browser.hva-animation model | en: Holds named HVA limb matrices grouped by animation frame | zh: 保存按动画帧分组的命名 HVA 部件矩阵
+@dataclass(frozen=True)
+class HvaAnimation:
+    limb_names: tuple[str, ...]
+    frames: tuple[tuple[tuple[float, ...], ...], ...]
 
 
 @dataclass(frozen=True)
@@ -275,6 +293,7 @@ class EntryPreviewResult:
     dat_format: str = ""
     dat_records: tuple[DatRecord, ...] = ()
     is_shp: bool = False
+    preview_notice: str | None = None
 
 
 def load_entry_preview(
@@ -289,7 +308,7 @@ def load_entry_preview(
     include_game_palettes: bool = True,
     palette_context: tuple[str, ...] = (),
 ) -> EntryPreviewResult:
-    if not is_previewable_file_name(entry.name or ""):
+    if not is_previewable_file(entry.name or "", entry.file_type):
         return EntryPreviewResult(
             "message",
             message=QCoreApplication.translate(
@@ -331,7 +350,7 @@ def load_entry_preview(
         )
     if asset_type == "pcx":
         return _load_pcx_preview(archive, entry)
-    if asset_type == "vxl":
+    if asset_type in {"vxl", "hva"}:
         result = _load_vxl_preview(
             archive,
             entry,
@@ -403,7 +422,7 @@ def load_path_preview(
     include_game_palettes: bool = True,
     palette_context: tuple[str, ...] = (),
 ) -> EntryPreviewResult:
-    if not is_previewable_file_name(path.name):
+    if not is_previewable_file(path.name):
         return EntryPreviewResult(
             "message",
             message=QCoreApplication.translate(
@@ -447,11 +466,17 @@ def load_path_preview(
         "shp",
         "shp-ts",
         "vxl",
+        "hva",
     }:
         sibling_palettes = _load_sibling_palettes(path)
+        palette_entry = (
+            replace(entry, name=f"{path.stem}.vxl", file_type="VXL")
+            if file_type.casefold() == "hva"
+            else entry
+        )
         result = _add_palette_sources(
             result,
-            entry,
+            palette_entry,
             sibling_palettes=sibling_palettes,
             palette_directory=(
                 palette_directory if include_game_palettes else None
@@ -482,12 +507,17 @@ def _defer_game_palette_notice(
     ):
         return result
     if game_palette_catalog_is_ready_or_loading(palette_directory):
+        if result.voxel_model is not None and result.message:
+            return result
         return replace(result, message=None)
+    checking_message = QCoreApplication.translate(
+        "EntryPreviewPane", "Checking configured game palettes..."
+    )
+    if result.voxel_model is not None and result.message:
+        checking_message = f"{result.message} {checking_message}"
     return replace(
         result,
-        message=QCoreApplication.translate(
-            "EntryPreviewPane", "Checking configured game palettes..."
-        ),
+        message=checking_message,
     )
 
 
@@ -505,6 +535,10 @@ def load_entry_palette_update(
     cancellation_event: Event | None = None,
     palette_context: tuple[str, ...] = (),
 ) -> EntryPreviewResult:
+    if result.voxel_model is not None and Path(entry.name or "").suffix.casefold() == ".hva":
+        companion = _find_voxel_companion(archive, entry, ".vxl", None)
+        if isinstance(companion, MixEntry):
+            entry = companion
     return _add_palette_sources(
         result,
         entry,
@@ -533,6 +567,8 @@ def load_path_palette_update(
     cancellation_event: Event | None = None,
     palette_context: tuple[str, ...] = (),
 ) -> EntryPreviewResult:
+    if result.voxel_model is not None and path.suffix.casefold() == ".hva":
+        entry = replace(entry, name=f"{path.stem}.vxl", file_type="VXL")
     return _add_palette_sources(
         result,
         entry,
@@ -843,7 +879,89 @@ def decode_shp_ts(data: bytes) -> tuple[int, int, tuple[IndexedFrame, ...]]:
     return canvas_width, canvas_height, tuple(frames)
 
 
-def decode_vxl(data: bytes) -> VoxelModel:
+# @arch mix-browser.hva-decoder utility | en: Decodes bounded HVA frame matrices and named limb sections | zh: 解码受限大小的 HVA 帧矩阵与命名部件区段
+def decode_hva(data: bytes) -> HvaAnimation:
+    if len(data) < 24:
+        raise ValueError(QCoreApplication.translate("EntryPreviewPane", "The HVA header is invalid."))
+    frame_count, limb_count = struct.unpack_from("<II", data, 16)
+    if not 1 <= frame_count <= _MAX_HVA_FRAMES or not 1 <= limb_count <= _MAX_VXL_LIMBS:
+        raise ValueError(QCoreApplication.translate("EntryPreviewPane", "The HVA frame or limb count exceeds the preview limit."))
+    names_start = 24
+    names_end = names_start + limb_count * 16
+    matrix_size = frame_count * limb_count * 48
+    expected_size = names_end + matrix_size
+    if expected_size > len(data) or expected_size > _MAX_HVA_BYTES:
+        raise ValueError(QCoreApplication.translate("EntryPreviewPane", "The HVA transform table is incomplete or too large."))
+
+    limb_names = tuple(
+        data[offset : offset + 16]
+        .split(b"\0", 1)[0]
+        .decode("ascii", errors="replace")
+        .strip()
+        for offset in range(names_start, names_end, 16)
+    )
+    if any(not name for name in limb_names) or len({name.casefold() for name in limb_names}) != limb_count:
+        raise ValueError(QCoreApplication.translate("EntryPreviewPane", "The HVA limb names are invalid or duplicated."))
+
+    frames: list[tuple[tuple[float, ...], ...]] = []
+    offset = names_end
+    for _frame in range(frame_count):
+        frame_matrices = []
+        for _limb in range(limb_count):
+            matrix = struct.unpack_from("<12f", data, offset)
+            offset += 48
+            if not all(math.isfinite(value) for value in matrix):
+                raise ValueError(QCoreApplication.translate("EntryPreviewPane", "An HVA transform contains invalid values."))
+            determinant = (
+                matrix[0] * (matrix[5] * matrix[10] - matrix[6] * matrix[9])
+                - matrix[1] * (matrix[4] * matrix[10] - matrix[6] * matrix[8])
+                + matrix[2] * (matrix[4] * matrix[9] - matrix[5] * matrix[8])
+            )
+            linear_scale = max(abs(matrix[index]) for index in (0, 1, 2, 4, 5, 6, 8, 9, 10))
+            if linear_scale == 0 or abs(determinant) <= 1e-8 * linear_scale**3:
+                raise ValueError(QCoreApplication.translate("EntryPreviewPane", "An HVA transform is not invertible."))
+            frame_matrices.append(tuple(matrix))
+        frames.append(tuple(frame_matrices))
+    return HvaAnimation(limb_names, tuple(frames))
+
+
+def _apply_hva_transform(
+    matrix: tuple[float, ...],
+    point: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    x, y, z = point
+    return (
+        matrix[0] * x + matrix[1] * y + matrix[2] * z + matrix[3],
+        matrix[4] * x + matrix[5] * y + matrix[6] * z + matrix[7],
+        matrix[8] * x + matrix[9] * y + matrix[10] * z + matrix[11],
+    )
+
+
+def _centered_hva_transform(
+    matrix: tuple[float, ...],
+    center: tuple[float, float, float],
+) -> tuple[float, ...]:
+    return (
+        matrix[0],
+        matrix[1],
+        matrix[2],
+        matrix[3] - center[0],
+        matrix[4],
+        matrix[5],
+        matrix[6],
+        matrix[7] - center[1],
+        matrix[8],
+        matrix[9],
+        matrix[10],
+        matrix[11] - center[2],
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    )
+
+
+def decode_vxl(data: bytes, hva_data: bytes | None = None) -> VoxelModel:
     if len(data) < _VXL_FIXED_HEADER_SIZE or not data[:16].startswith(b"Voxel Animation"):
         raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'The VXL header is invalid.'))
     limb_count = struct.unpack_from("<I", data, 20)[0]
@@ -857,177 +975,237 @@ def decode_vxl(data: bytes) -> VoxelModel:
     if limb_headers_end > len(data) or footer_end > len(data):
         raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'The VXL section table is incomplete.'))
 
-    limbs: list[
+    face_specs = (
+        ((1, 0, 0), (1.0, 0.0, 0.0), ((1, -1, -1), (1, 1, -1), (1, 1, 1), (1, -1, 1))),
+        ((-1, 0, 0), (-1.0, 0.0, 0.0), ((-1, 1, -1), (-1, -1, -1), (-1, -1, 1), (-1, 1, 1))),
+        ((0, 1, 0), (0.0, 1.0, 0.0), ((1, 1, -1), (-1, 1, -1), (-1, 1, 1), (1, 1, 1))),
+        ((0, -1, 0), (0.0, -1.0, 0.0), ((-1, -1, -1), (1, -1, -1), (1, -1, 1), (-1, -1, 1))),
+        ((0, 0, 1), (0.0, 0.0, 1.0), ((-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1))),
+        ((0, 0, -1), (0.0, 0.0, -1.0), ((-1, 1, -1), (1, 1, -1), (1, -1, -1), (-1, -1, -1))),
+    )
+    triangle_vertices = (0, 1, 2, 0, 2, 3)
+    limb_records: list[
         tuple[
-            list[tuple[int, int, int, int]],
+            str,
+            tuple[tuple[float, float, float], tuple[float, float, float]] | None,
             tuple[float, float, float],
-            tuple[float, float, float],
-            float,
         ]
     ] = []
     voxel_count = 0
-    model_min = [float("inf"), float("inf"), float("inf")]
-    model_max = [float("-inf"), float("-inf"), float("-inf")]
+    face_count = 0
+    vertices = array("f")
+    limb_ranges: list[tuple[int, int]] = []
+
     for limb_index in range(limb_count):
+        header = _VXL_FIXED_HEADER_SIZE + limb_index * _VXL_LIMB_HEADER_SIZE
+        limb_name = (
+            data[header : header + 16]
+            .split(b"\0", 1)[0]
+            .decode("ascii", errors="replace")
+            .strip()
+        )
         footer = body_end + limb_index * _VXL_LIMB_FOOTER_SIZE
         limb_offset = struct.unpack_from("<I", data, footer)[0]
         scale = struct.unpack_from("<f", data, footer + 12)[0]
         bounds = struct.unpack_from("<6f", data, footer + 64)
         size_x, size_y, size_z = data[footer + 88 : footer + 91]
-        columns = size_x * size_y
-        if not size_x or not size_y or not size_z or columns > _MAX_VXL_VOXELS:
-            continue
-        table = limb_headers_end + limb_offset
-        voxel_data = table + columns * 8
-        if table < limb_headers_end or voxel_data > body_end:
-            raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'A VXL limb data offset is invalid.'))
-        starts = struct.unpack_from(f"<{columns}i", data, table)
-        ends = struct.unpack_from(f"<{columns}i", data, table + columns * 4)
-        limb_points = []
-        for column, (relative_start, relative_end) in enumerate(zip(starts, ends, strict=True)):
-            if relative_start == -1:
-                continue
-            if (
-                relative_start < 0
-                or relative_end < relative_start
-                or voxel_data + relative_end >= body_end
-            ):
-                raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'A VXL column span is outside the limb data range.'))
-            cursor = voxel_data + relative_start
-            end = voxel_data + relative_end + 1
-            z = 0
-            x = column % size_x
-            y = column // size_x
-            while z < size_z and cursor < end:
-                if cursor + 2 > end:
-                    raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'A VXL voxel span header is incomplete.'))
-                skip = data[cursor]
-                count = data[cursor + 1]
-                cursor += 2
-                z += skip
-                if z > size_z or z + count > size_z or cursor + count * 2 + 1 > end:
-                    raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'A VXL voxel span is malformed.'))
-                for _ in range(count):
-                    color = data[cursor]
-                    cursor += 2
-                    limb_points.append((x, y, z, color))
-                    z += 1
-                duplicate_count = data[cursor]
-                cursor += 1
-                if duplicate_count != count:
-                    raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'A VXL span length marker does not match its data.'))
-            if cursor != end:
-                raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'A VXL column ended before its declared height.'))
-
-        voxel_count += len(limb_points)
-        if voxel_count > _MAX_VXL_VOXELS:
-            raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'The VXL model exceeds the preview voxel limit.'))
-        min_x, min_y, min_z, max_x, max_y, max_z = bounds
-        extents = (max_x - min_x, max_y - min_y, max_z - min_z)
-        valid_bounds = all(math.isfinite(value) and value > 0 for value in extents)
+        origin = (0.0, 0.0, 0.0)
+        voxel_size = (1.0, 1.0, 1.0)
         safe_scale = scale if 0.001 <= abs(scale) <= 1000 else 1.0
-        if valid_bounds:
-            origin = (min_x, min_y, min_z)
-            dimensions = (size_x, size_y, size_z)
-            voxel_size = tuple(
-                extents[axis] / dimensions[axis] for axis in range(3)
-            )
-        else:
-            origin = (0.0, 0.0, 0.0)
-            voxel_size = (1.0, 1.0, 1.0)
-        for x, y, z, _color in limb_points:
-            coordinates = (x, y, z)
-            for axis in range(3):
-                center = (
-                    origin[axis]
-                    + (coordinates[axis] + 0.5) * voxel_size[axis]
-                ) * safe_scale
-                half_size = abs(voxel_size[axis] * safe_scale) * 0.5
-                model_min[axis] = min(model_min[axis], center - half_size)
-                model_max[axis] = max(model_max[axis], center + half_size)
-        limbs.append((limb_points, origin, voxel_size, safe_scale))
+        limb_points: list[tuple[int, int, int, int]] = []
+        limb_bounds: tuple[tuple[float, float, float], tuple[float, float, float]] | None = None
 
-    if not voxel_count:
-        raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'The VXL file contains no renderable voxel spans.'))
-    model_center = tuple(
-        (model_min[axis] + model_max[axis]) * 0.5 for axis in range(3)
-    )
-    model_diameter = max(model_max[axis] - model_min[axis] for axis in range(3))
-    if not math.isfinite(model_diameter) or model_diameter <= 0:
-        model_diameter = 1.0
-    normalization = 2.0 / model_diameter
-    vertices = array("f")
-    face_count = 0
-    face_specs = (
-        (
-            (1, 0, 0),
-            (1.0, 0.0, 0.0),
-            ((1, -1, -1), (1, 1, -1), (1, 1, 1), (1, -1, 1)),
-        ),
-        (
-            (-1, 0, 0),
-            (-1.0, 0.0, 0.0),
-            ((-1, 1, -1), (-1, -1, -1), (-1, -1, 1), (-1, 1, 1)),
-        ),
-        (
-            (0, 1, 0),
-            (0.0, 1.0, 0.0),
-            ((1, 1, -1), (-1, 1, -1), (-1, 1, 1), (1, 1, 1)),
-        ),
-        (
-            (0, -1, 0),
-            (0.0, -1.0, 0.0),
-            ((-1, -1, -1), (1, -1, -1), (1, -1, 1), (-1, -1, 1)),
-        ),
-        (
-            (0, 0, 1),
-            (0.0, 0.0, 1.0),
-            ((-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)),
-        ),
-        (
-            (0, 0, -1),
-            (0.0, 0.0, -1.0),
-            ((-1, 1, -1), (1, 1, -1), (1, -1, -1), (-1, -1, -1)),
-        ),
-    )
-    triangle_vertices = (0, 1, 2, 0, 2, 3)
-    for limb_points, origin, voxel_size, safe_scale in limbs:
-        occupied = {(x, y, z) for x, y, z, _color in limb_points}
-        normal_sign = -1.0 if safe_scale < 0 else 1.0
-        for x, y, z, color in limb_points:
-            coordinates = (x, y, z)
-            center = tuple(
-                (
-                    origin[axis]
-                    + (coordinates[axis] + 0.5) * voxel_size[axis]
-                )
-                * safe_scale
-                for axis in range(3)
-            )
-            half_sizes = tuple(abs(voxel_size[axis] * safe_scale) * 0.5 for axis in range(3))
-            for neighbor, normal, corners in face_specs:
-                if (x + neighbor[0], y + neighbor[1], z + neighbor[2]) in occupied:
+        columns = size_x * size_y
+        if size_x and size_y and size_z and columns <= _MAX_VXL_VOXELS:
+            table = limb_headers_end + limb_offset
+            voxel_data = table + columns * 8
+            if table < limb_headers_end or voxel_data > body_end:
+                raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'A VXL limb data offset is invalid.'))
+            starts = struct.unpack_from(f"<{columns}i", data, table)
+            ends = struct.unpack_from(f"<{columns}i", data, table + columns * 4)
+            for column, (relative_start, relative_end) in enumerate(zip(starts, ends, strict=True)):
+                if relative_start == -1:
                     continue
-                face_count += 1
-                if face_count > _MAX_VXL_SURFACE_FACES:
-                    raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'The VXL model surface exceeds the preview mesh limit.'))
-                for corner_index in triangle_vertices:
-                    corner = corners[corner_index]
-                    vertices.extend(
-                        (
-                            (center[0] + corner[0] * half_sizes[0] - model_center[0]) * normalization,
-                            (center[1] + corner[1] * half_sizes[1] - model_center[1]) * normalization,
-                            (center[2] + corner[2] * half_sizes[2] - model_center[2]) * normalization,
-                            normal[0] * normal_sign,
-                            normal[1] * normal_sign,
-                            normal[2] * normal_sign,
-                            float(color),
-                        )
-                    )
+                if relative_start < 0 or relative_end < relative_start or voxel_data + relative_end >= body_end:
+                    raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'A VXL column span is outside the limb data range.'))
+                cursor = voxel_data + relative_start
+                end = voxel_data + relative_end + 1
+                z = 0
+                x = column % size_x
+                y = column // size_x
+                while z < size_z and cursor < end:
+                    if cursor + 2 > end:
+                        raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'A VXL voxel span header is incomplete.'))
+                    skip = data[cursor]
+                    count = data[cursor + 1]
+                    cursor += 2
+                    z += skip
+                    if z > size_z or z + count > size_z or cursor + count * 2 + 1 > end:
+                        raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'A VXL voxel span is malformed.'))
+                    for _ in range(count):
+                        color = data[cursor]
+                        cursor += 2
+                        limb_points.append((x, y, z, color))
+                        z += 1
+                    duplicate_count = data[cursor]
+                    cursor += 1
+                    if duplicate_count != count:
+                        raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'A VXL span length marker does not match its data.'))
+                if cursor != end:
+                    raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'A VXL column ended before its declared height.'))
 
-    if not face_count:
+            voxel_count += len(limb_points)
+            if voxel_count > _MAX_VXL_VOXELS:
+                raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'The VXL model exceeds the preview voxel limit.'))
+            min_x, min_y, min_z, max_x, max_y, max_z = bounds
+            extents = (max_x - min_x, max_y - min_y, max_z - min_z)
+            valid_bounds = all(math.isfinite(value) and value > 0 for value in extents)
+            if valid_bounds:
+                origin = (min_x, min_y, min_z)
+                voxel_size = tuple(extents[axis] / (size_x, size_y, size_z)[axis] for axis in range(3))
+
+            occupied = {(x, y, z) for x, y, z, _color in limb_points}
+            first_vertex = len(vertices) // 7
+            normal_sign = -1.0 if safe_scale < 0 else 1.0
+            limb_min = [float("inf"), float("inf"), float("inf")]
+            limb_max = [float("-inf"), float("-inf"), float("-inf")]
+            for x, y, z, color in limb_points:
+                coordinates = (x, y, z)
+                center = tuple(
+                    (origin[axis] + coordinates[axis] + 0.5) * safe_scale
+                    for axis in range(3)
+                )
+                half_size = abs(safe_scale) * 0.5
+                half_sizes = (half_size, half_size, half_size)
+                for axis in range(3):
+                    limb_min[axis] = min(limb_min[axis], center[axis] - half_sizes[axis])
+                    limb_max[axis] = max(limb_max[axis], center[axis] + half_sizes[axis])
+                for neighbor, normal, corners in face_specs:
+                    if (x + neighbor[0], y + neighbor[1], z + neighbor[2]) in occupied:
+                        continue
+                    face_count += 1
+                    if face_count > _MAX_VXL_SURFACE_FACES:
+                        raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'The VXL model surface exceeds the preview mesh limit.'))
+                    for corner_index in triangle_vertices:
+                        corner = corners[corner_index]
+                        vertices.extend(
+                            (
+                                center[0] + corner[0] * half_sizes[0],
+                                center[1] + corner[1] * half_sizes[1],
+                                center[2] + corner[2] * half_sizes[2],
+                                normal[0] * normal_sign,
+                                normal[1] * normal_sign,
+                                normal[2] * normal_sign,
+                                float(color),
+                            )
+                        )
+            vertex_count = len(vertices) // 7 - first_vertex
+            limb_ranges.append((first_vertex, vertex_count))
+            if limb_points:
+                limb_bounds = (tuple(limb_min), tuple(limb_max))
+        else:
+            limb_ranges.append((len(vertices) // 7, 0))
+
+        limb_records.append(
+            (
+                limb_name,
+                limb_bounds,
+                tuple(
+                    safe_scale * safe_scale * voxel_size[axis]
+                    for axis in range(3)
+                ),
+            )
+        )
+
+    if not voxel_count or not face_count:
         raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'The VXL file contains no renderable voxel surfaces.'))
-    return VoxelModel(vertices.tobytes(), len(vertices) // 7, voxel_count)
+
+    hva = decode_hva(hva_data) if hva_data is not None else None
+    if hva is not None:
+        vxl_names = tuple(name for name, _bounds, _translation_scale in limb_records)
+        name_to_hva_index = {name.casefold(): index for index, name in enumerate(hva.limb_names)}
+        if (
+            len(hva.limb_names) != limb_count
+            or any(not name or name.casefold() not in name_to_hva_index for name in vxl_names)
+            or len({name.casefold() for name in vxl_names}) != limb_count
+        ):
+            raise ValueError(QCoreApplication.translate("EntryPreviewPane", "The HVA limb names do not match the VXL model."))
+        hva_frames = tuple(
+            tuple(frame[name_to_hva_index[name.casefold()]] for name in vxl_names)
+            for frame in hva.frames
+        )
+    else:
+        identity = (1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0)
+        hva_frames = (tuple(identity for _ in range(limb_count)),)
+
+    # The engine converts HVA offsets by voxel pitch, then applies the limb
+    # scale to the whole transform; mesh vertices already include that scale.
+    scaled_hva_frames = tuple(
+        tuple(
+            tuple(
+                value * limb_records[limb_index][2][value_index // 4]
+                if value_index in (3, 7, 11)
+                else value
+                for value_index, value in enumerate(matrix)
+            )
+            for limb_index, matrix in enumerate(frame)
+        )
+        for frame in hva_frames
+    )
+
+    transformed_min = [float("inf"), float("inf"), float("inf")]
+    transformed_max = [float("-inf"), float("-inf"), float("-inf")]
+    frame_bounds: list[tuple[float, float, float, float, float, float]] = []
+    for frame in scaled_hva_frames:
+        frame_min = [float("inf"), float("inf"), float("inf")]
+        frame_max = [float("-inf"), float("-inf"), float("-inf")]
+        for limb_index, (_name, limb_bounds, _translation_scale) in enumerate(limb_records):
+            if limb_bounds is None:
+                continue
+            lower, upper = limb_bounds
+            matrix = frame[limb_index]
+            for corner_mask in range(8):
+                corner = tuple(
+                    upper[axis] if corner_mask & (1 << axis) else lower[axis]
+                    for axis in range(3)
+                )
+                transformed = _apply_hva_transform(matrix, corner)
+                if not all(math.isfinite(value) for value in transformed):
+                    raise ValueError(QCoreApplication.translate("EntryPreviewPane", "An HVA transform contains invalid values."))
+                for axis in range(3):
+                    transformed_min[axis] = min(transformed_min[axis], transformed[axis])
+                    transformed_max[axis] = max(transformed_max[axis], transformed[axis])
+                    frame_min[axis] = min(frame_min[axis], transformed[axis])
+                    frame_max[axis] = max(frame_max[axis], transformed[axis])
+        frame_bounds.append((*frame_min, *frame_max))
+
+    model_center = tuple(
+        (transformed_min[axis] + transformed_max[axis]) * 0.5
+        for axis in range(3)
+    )
+    centered_frames = tuple(
+        tuple(
+            _centered_hva_transform(matrix, model_center)
+            for matrix in frame
+        )
+        for frame in scaled_hva_frames
+    )
+    centered_bounds = tuple(
+        tuple(
+            value - model_center[axis % 3]
+            for axis, value in enumerate(bounds)
+        )
+        for bounds in frame_bounds
+    )
+    return VoxelModel(
+        vertices.tobytes(),
+        len(vertices) // 7,
+        voxel_count,
+        tuple(limb_ranges),
+        centered_frames,
+        hva is not None,
+        centered_bounds,
+    )
 
 
 def _load_shp_preview(
@@ -1121,23 +1299,74 @@ def _load_vxl_preview(
     palette_library: tuple[PaletteLibraryRule, ...],
     palette_context: tuple[str, ...],
 ) -> EntryPreviewResult:
-    data = read_mix_entry_bytes(archive, entry, max_bytes=_MAX_IMAGE_BYTES)
+    requested_suffix = Path(entry.name or "").suffix.casefold()
+    loose_source = _loose_asset_source(archive, entry)
+    if requested_suffix == ".hva":
+        vxl_source = _find_voxel_companion(archive, entry, ".vxl", loose_source)
+        if vxl_source is None:
+            return EntryPreviewResult(
+                "message",
+                message=QCoreApplication.translate(
+                    "EntryPreviewPane",
+                    "A matching VXL model was not found in the same source as this HVA file.",
+                ),
+            )
+        data = _read_voxel_source(archive, vxl_source, _MAX_IMAGE_BYTES)
+        hva_data = _read_voxel_source(archive, entry if loose_source is None else loose_source, _MAX_HVA_BYTES)
+        if hva_data is None:
+            return EntryPreviewResult(
+                "message",
+                message=QCoreApplication.translate(
+                    "EntryPreviewPane",
+                    "The HVA file is too large or could not be read.",
+                ),
+            )
+        voxel_entry = (
+            vxl_source
+            if isinstance(vxl_source, MixEntry)
+            else replace(entry, name=vxl_source.name, file_type="VXL")
+        )
+    else:
+        data = read_mix_entry_bytes(archive, entry, max_bytes=_MAX_IMAGE_BYTES)
+        hva_data = None
+        voxel_entry = entry
     if data is None:
         return EntryPreviewResult("message", message=QCoreApplication.translate("EntryPreviewPane", 'The VXL model is too large or could not be read.'))
+    notice = None
+    if requested_suffix == ".hva" and hva_data is None:
+        notice = QCoreApplication.translate(
+            "EntryPreviewPane",
+            "No matching HVA file was found or could be read; showing static VXL geometry.",
+        )
     try:
-        model = decode_vxl(data)
+        model = decode_vxl(data, hva_data)
     except (ValueError, struct.error, OverflowError) as exc:
         return EntryPreviewResult("message", message=str(exc))
+    if requested_suffix == ".hva" and hva_data is None:
+        notice = QCoreApplication.translate(
+            "EntryPreviewPane",
+            "The HVA file is too large or could not be read; showing static VXL geometry.",
+        )
+    if model.has_hva:
+        details = (
+            QCoreApplication.translate(
+                "EntryPreviewPane",
+                "HVA pose preview (paired VXL) | {0:,} voxels | {1:,} frames",
+            ).format(model.voxel_count, model.frame_count),
+        )
+    else:
+        details = (
+            QCoreApplication.translate("EntryPreviewPane", "VXL model | {0:,} voxels").format(model.voxel_count),
+        )
     result = EntryPreviewResult(
         "model",
-        details=(
-            QCoreApplication.translate("EntryPreviewPane", "VXL model | {0:,} voxels").format(model.voxel_count),
-        ),
+        preview_notice=notice,
+        details=details,
         voxel_model=model,
     )
     return _add_palette_sources(
         result,
-        entry,
+        voxel_entry,
         archive=archive,
         palette_directory=palette_directory,
         palette_theater=palette_theater,
@@ -1146,6 +1375,71 @@ def _load_vxl_preview(
         palette_library=palette_library,
         palette_context=palette_context,
     )
+
+
+def _loose_asset_source(
+    archive: MixArchiveIndex,
+    entry: MixEntry,
+) -> Path | None:
+    path = archive.path
+    if path.suffix.casefold() not in {".vxl", ".hva"} or path.name.casefold() != (entry.name or "").casefold():
+        return None
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    if (
+        archive.data_start == 0
+        and archive.source_offset == 0
+        and archive.source_size == stat.st_size
+        and entry.offset == 0
+        and entry.size == stat.st_size
+    ):
+        return path
+    return None
+
+
+def _find_voxel_companion(
+    archive: MixArchiveIndex,
+    entry: MixEntry,
+    suffix: str,
+    loose_source: Path | None,
+) -> MixEntry | Path | None:
+    target_name = f"{Path(entry.name or '').stem}{suffix}"
+    if loose_source is not None:
+        try:
+            matches = tuple(
+                candidate
+                for candidate in loose_source.parent.iterdir()
+                if candidate.name.casefold() == target_name.casefold()
+                and candidate.is_file()
+            )
+        except OSError:
+            return None
+        return matches[0] if len(matches) == 1 else None
+    matches = tuple(
+        candidate
+        for candidate in archive.entries
+        if candidate.file_id != entry.file_id
+        and candidate.name is not None
+        and candidate.name.casefold() == target_name.casefold()
+    )
+    return matches[0] if len(matches) == 1 else None
+
+
+def _read_voxel_source(
+    archive: MixArchiveIndex,
+    source: MixEntry | Path,
+    max_bytes: int,
+) -> bytes | None:
+    if isinstance(source, MixEntry):
+        return read_mix_entry_bytes(archive, source, max_bytes=max_bytes)
+    try:
+        if not source.is_file() or source.stat().st_size > max_bytes:
+            return None
+        return source.read_bytes()
+    except OSError:
+        return None
 
 
 def _load_media_preview(
@@ -2820,6 +3114,12 @@ def _infer_asset_palette_kind(
     rules: dict[str, str],
     asset_type: str,
 ) -> str | None:
+    normalized_asset_type = (
+        asset_type or Path(entry_name).suffix.lstrip(".")
+    ).casefold()
+    if normalized_asset_type == "vxl":
+        return "unit"
+
     stem = Path(entry_name).stem.casefold()
     if _is_enabled(rules.get("firerspalette", "")):
         return "unit"
@@ -2857,8 +3157,6 @@ def _infer_asset_palette_kind(
         rules.get(field)
         for field in ("sequence", "rotates", "rotcount", "turretoffset", "barrellength")
     ) or _is_enabled(rules.get("voxel", "")):
-        return "unit"
-    if asset_type.casefold() == "vxl":
         return "unit"
     if Path(entry_name).suffix.casefold().lstrip(".") in _THEATER_SUFFIXES:
         return "terrain"

@@ -4,7 +4,7 @@ import os
 import shutil
 import tempfile
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from mix_browser.shared.file_operations import replace_path_with_staged_sibling
@@ -108,6 +108,7 @@ def rename_entry(
 def delete_entries(
     paths: Sequence[Path],
     *,
+    expected_signatures: Mapping[str, tuple[int, int]] | None = None,
     progress: ProgressCallback | None = None,
     cancellation_requested: CancellationCheck | None = None,
 ) -> dict[str, object]:
@@ -120,6 +121,15 @@ def delete_entries(
     try:
         for index, source in enumerate(sources, start=1):
             _check_cancelled(cancellation_requested)
+            expected_signature = (
+                expected_signatures.get(os.path.normcase(str(source)))
+                if expected_signatures is not None
+                else None
+            )
+            if expected_signature is not None:
+                metadata = source.stat()
+                if (metadata.st_size, metadata.st_mtime_ns) != expected_signature:
+                    raise ValueError(f"The source changed before it could be moved: {source}")
             quarantine = Path(tempfile.mkdtemp(prefix=".mix-browser-delete-", dir=source.parent))
             staged_path = quarantine / "item"
             try:
@@ -128,6 +138,10 @@ def delete_entries(
                 shutil.rmtree(quarantine, ignore_errors=True)
                 raise
             staged.append((source, staged_path, quarantine))
+            if expected_signature is not None:
+                metadata = staged_path.stat()
+                if (metadata.st_size, metadata.st_mtime_ns) != expected_signature:
+                    raise ValueError(f"The source changed while it was being moved: {source}")
             if progress:
                 progress(index, len(sources) * 2)
         _check_cancelled(cancellation_requested)

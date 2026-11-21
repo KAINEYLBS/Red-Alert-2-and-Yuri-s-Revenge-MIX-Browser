@@ -6,7 +6,8 @@ This notice covers third-party material included with or directly used by RA2AYR
 
 - The XCC Tiberian Dawn, Tiberian Sun, and Red Alert 2/Yuri's Revenge MIX name lists in `mix_browser/data/name_sources/xcc/` are identified as GPL-3.0. Their license text is included as `mix_browser/data/name_sources/xcc/COPYING` and in Python package license metadata. The project MIT license does not cover these lists.
 - `mix_browser/data/icons/github.svg` is the GitHub mark from Simple Icons, available under CC0 1.0. The hand-drawn `MIX-EXE.ico`, `MIX-FILE.ico`, `MMX-FILE.ico`, and `YRO-FILE.ico` icons are project-authored assets.
-- The optional CnCNet Global MIX Database is not included. Users may request it from the original forum attachment; the source does not state a separate license, so redistribution permission remains unconfirmed. See [MIX name data sources](docs/mix_name_data_sources.md).
+- `mix_browser/data/icons/square-pen.svg` is the Square Pen icon from Lucide Icons (lucide-static v1.77.0), available under ISC. Its license text is included in `docs/licenses/Lucide/ISC.txt` and the Windows application license bundle. Source: [Lucide Square Pen](https://lucide.dev/icons/square-pen).
+- The optional CnCNet Global MIX Database is downloaded on request from its original forum attachment and is not included in the repository or application release package. Its download location and use are described in [MIX name data sources](docs/mix_name_data_sources.md).
 
 ## Technical References
 
@@ -26,4 +27,11 @@ This notice covers third-party material included with or directly used by RA2AYR
 | MCP Python SDK (`mcp`) | CLI/MCP server implementation | MIT. It is installed as a Python dependency and is not bundled by the desktop-only `package.bat` build. Source: [Python SDK](https://github.com/modelcontextprotocol/python-sdk). |
 | PyInstaller | Build tool only | Used to create the Windows application directory; it is not included in the application runtime distribution. |
 
-The application license and third-party notices are placed in the visible `licenses` directory beside the executable. `package.bat` also collects the Python runtime, pycryptodomex, and python-vlc license files from the resolved build environment. The open-source export does not include a Python environment or VLC binaries. `tools/prepare_vlc_runtime.bat` downloads and verifies the VLC runtime once; `package.bat` copies the cached runtime and license notices without downloading it again. The active VLC plugin and dependency review is documented in [VLC runtime license review](docs/vlc_runtime_licenses.md).
+## Windows Package Components
+
+| Component | Version observed | License and package notice |
+| --- | --- | --- |
+| Qt software OpenGL renderer (`opengl32sw.dll`) | PySide6/Qt 6.11.1; Mesa 11.2.2; LLVM 3.6.2 | Qt's 6.11 attribution identifies this DLL as Mesa llvmpipe and lists MIT, Khronos, and Boost Software License 1.0 texts. The DLL also contains LLVM 3.6.2 compiler, IR, and llvmpipe JIT markers. The package includes those Mesa notices and LLVM's University of Illinois/NCSA license under `licenses/Mesa/` and `licenses/LLVM/`. Sources: [Qt 6.11 component inventory](https://doc.qt.io/qt-6.11/licenses-used-in-qt.html), [Mesa llvmpipe attribution](https://doc.qt.io/qt-6.11/qt-attribution-llvmpipe.html), and [LLVM 3.6 release license](https://github.com/llvm-mirror/llvm/blob/release_36/LICENSE.TXT). |
+| CFFI and pycparser | CFFI 2.1.1; pycparser 3.12 | Both modules are present in the reviewed Windows executable. CFFI is MIT-0 and pycparser is BSD-3-Clause. `package.bat` copies their license texts to `licenses/CFFI/` and `licenses/pycparser/`. Sources: [CFFI](https://github.com/python-cffi/cffi) and [pycparser](https://github.com/eliben/pycparser). |
+
+The application license and third-party notices are placed in the visible `licenses` directory beside the executable. `package.bat` also collects the Python runtime, pycryptodomex, and python-vlc license files from the resolved build environment, and copies the maintained Mesa llvmpipe, LLVM, CFFI, and pycparser license texts from `docs/licenses/`. The open-source export does not include a Python environment or VLC binaries. `tools/prepare_vlc_runtime.bat` downloads and verifies the VLC runtime once; `package.bat` copies the cached runtime and license notices without downloading it again. The active VLC plugin and dependency review is documented in [VLC runtime license review](docs/vlc_runtime_licenses.md).

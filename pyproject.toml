@@ -11,6 +11,7 @@ license-files = [
     "LICENSE",
     "LGPL-3.0-only.txt",
     "mix_browser/data/name_sources/xcc/COPYING",
+    "docs/licenses/Lucide/ISC.txt",
 ]
 requires-python = ">=3.10"
 dependencies = [

@@ -13,6 +13,7 @@ from PySide6.QtCore import (
     QRect,
     QSignalBlocker,
     QSize,
+    QTimer,
     Qt,
     QUrl,
     Signal,
@@ -54,6 +55,9 @@ from mix_browser.shared.application_style import (
     BROWSER_TOOLBAR_CONTROL_HEIGHT,
     mark_menu_tool_button,
 )
+from mix_browser.shared.interaction_help import InteractionHelpCatalog
+from mix_browser.shared.table_row_delegate import ApplicationTableRowDelegate
+from mix_browser.shared.table_sorting import ApplicationSortableTableView
 
 
 # Qt Widgets has no built-in layout that wraps controls across rows.
@@ -208,11 +212,16 @@ class _VisibleFiltersDialog(QDialog):
 
 
 # @arch mix-browser.entry-table-view component | en: Preserves browser selections during copy drags and excludes DAT rows from MIX multiselection | zh: 拖拽复制时保留浏览表格选中项，并禁止 MIX 内的 DAT 进入多选
-class _EntryTableView(QTableView):
+class _EntryTableView(ApplicationSortableTableView):
     drag_requested = Signal()
 
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
+    def __init__(
+        self,
+        parent=None,
+        *,
+        interaction_help: InteractionHelpCatalog | None = None,
+    ) -> None:
+        super().__init__(parent, interaction_help=interaction_help)
         self._drag_start_active = False
         self._drag_selection_rows: tuple[int, ...] = ()
         self._drag_current_index = QModelIndex()
@@ -350,10 +359,12 @@ class EntryTable(QWidget):
         self,
         source_model: QAbstractItemModel,
         parent: QWidget | None = None,
+        *,
+        interaction_help: InteractionHelpCatalog | None = None,
     ) -> None:
         super().__init__(parent)
         self.source_model = source_model
-        self.table = _EntryTableView(self)
+        self.table = _EntryTableView(self, interaction_help=interaction_help)
         self.table.setModel(source_model)
         self.table.setDragEnabled(True)
         self.table.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
@@ -361,10 +372,19 @@ class EntryTable(QWidget):
         self.table.drag_requested.connect(self._on_drag_requested)
         self._drag_pending = False
         self._drag_wait_loop: QEventLoop | None = None
+        self._filtered_selection_restore: object | None = None
+        self._applying_type_filters = False
+        self._filter_scroll_generation = 0
         self.table.viewport().installEventFilter(self)
         self.table.installEventFilter(self)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.selectionModel().selectionChanged.connect(
+            self._on_filter_selection_changed
+        )
+        self.table.selectionModel().currentChanged.connect(
+            self._on_filter_current_changed
+        )
         self.table.selectionModel().selectionChanged.connect(
             self.table.enforce_multi_selection_rules
         )
@@ -372,7 +392,6 @@ class EntryTable(QWidget):
         self.table.setShowGrid(False)
         self.table.setIconSize(QSize(16, 16))
         self.table.setMouseTracking(True)
-        self.table.setSortingEnabled(True)
         self.table.verticalHeader().setVisible(False)
         header = self.table.horizontalHeader()
         header.setStretchLastSection(False)
@@ -616,19 +635,136 @@ class EntryTable(QWidget):
             type_filter = OTHER_FILE_TYPE_FILTER
         return type_filter in self._enabled_type_filters
 
+    def _on_filter_selection_changed(self, *_args) -> None:
+        if not self._applying_type_filters:
+            self._filtered_selection_restore = None
+            self._filter_scroll_generation += 1
+
+    def _on_filter_current_changed(self, *_args) -> None:
+        if not self._applying_type_filters:
+            self._filtered_selection_restore = None
+            self._filter_scroll_generation += 1
+
+    def _scroll_filtered_entry_into_view(
+        self,
+        generation: int,
+        entry: object,
+    ) -> None:
+        if generation != self._filter_scroll_generation:
+            return
+        row_object_at = getattr(self.source_model, "row_object_at", None)
+        if not callable(row_object_at):
+            return
+        for row in range(self.source_model.rowCount()):
+            if row_object_at(row) is not entry:
+                continue
+            if not self.table.isRowHidden(row):
+                self.table.scrollTo(
+                    self.source_model.index(row, 0),
+                    QAbstractItemView.ScrollHint.EnsureVisible,
+                )
+            return
+
     def _apply_type_filters(self) -> None:
-        for row, type_filter in enumerate(self._row_type_filters):
-            visible = self._is_row_type_visible(type_filter)
-            self.table.setRowHidden(row, not visible)
-
         selection = self.table.selectionModel()
-        selected_rows = selection.selectedRows()
-        if any(self.table.isRowHidden(index.row()) for index in selected_rows):
-            selection.clearSelection()
+        self._filter_scroll_generation += 1
+        generation = self._filter_scroll_generation
+        self._applying_type_filters = True
+        try:
+            row_object_at = getattr(self.source_model, "row_object_at", None)
+            selected_rows_before_filter = selection.selectedRows()
+            selected_entry = None
+            if callable(row_object_at) and selected_rows_before_filter:
+                selected_entry = row_object_at(
+                    selected_rows_before_filter[0].row()
+                )
+            for row, type_filter in enumerate(self._row_type_filters):
+                visible = self._is_row_type_visible(type_filter)
+                self.table.setRowHidden(row, not visible)
 
-        current = self.table.currentIndex()
-        if current.isValid() and self.table.isRowHidden(current.row()):
-            self.table.setCurrentIndex(QModelIndex())
+            row_by_identity = {
+                id(entry): row
+                for row in range(self.source_model.rowCount())
+                if callable(row_object_at)
+                and (entry := row_object_at(row)) is not None
+            }
+            selected_row = (
+                row_by_identity.get(id(selected_entry))
+                if selected_entry is not None
+                else None
+            )
+            if (
+                selected_row is not None
+                and self.table.isRowHidden(selected_row)
+            ):
+                self._filtered_selection_restore = selected_entry
+                selection.clearSelection()
+
+            delegate = self.table.itemDelegate()
+            if isinstance(delegate, ApplicationTableRowDelegate):
+                delegate.invalidate_visible_rows()
+                self.table.viewport().update()
+
+            current = self.table.currentIndex()
+            if current.isValid() and self.table.isRowHidden(current.row()):
+                self.table.setCurrentIndex(QModelIndex())
+                current = QModelIndex()
+
+            target = QModelIndex()
+            pending_entry = self._filtered_selection_restore
+            pending_row = (
+                row_by_identity.get(id(pending_entry))
+                if pending_entry is not None
+                else None
+            )
+            if pending_entry is not None and pending_row is None:
+                self._filtered_selection_restore = None
+            elif (
+                pending_row is not None
+                and not self.table.isRowHidden(pending_row)
+                and not selection.selectedRows()
+            ):
+                target = self.source_model.index(pending_row, 0)
+                self._filtered_selection_restore = None
+
+            if target.isValid() and not selection.selectedRows():
+                selection.select(
+                    target,
+                    QItemSelectionModel.SelectionFlag.Select
+                    | QItemSelectionModel.SelectionFlag.Rows,
+                )
+                selection.setCurrentIndex(
+                    target,
+                    QItemSelectionModel.SelectionFlag.NoUpdate,
+                )
+                current = target
+
+            selected_rows = selection.selectedRows()
+            if selected_rows:
+                target = selected_rows[0]
+            else:
+                target = current
+            if target.isValid():
+                target_entry = (
+                    row_object_at(target.row())
+                    if callable(row_object_at)
+                    else None
+                )
+                if target_entry is not None:
+                    QTimer.singleShot(
+                        0,
+                        lambda: self._scroll_filtered_entry_into_view(
+                            generation,
+                            target_entry,
+                        ),
+                    )
+                else:
+                    self.table.scrollTo(
+                        target,
+                        QAbstractItemView.ScrollHint.EnsureVisible,
+                    )
+        finally:
+            self._applying_type_filters = False
 
     def _on_drag_requested(self) -> None:
         self._drag_pending = True

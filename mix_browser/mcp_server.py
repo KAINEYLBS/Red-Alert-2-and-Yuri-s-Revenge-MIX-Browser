@@ -59,6 +59,38 @@ def create_server(application: MixBrowserApplication | None = None) -> FastMCP:
             )
         )
 
+    # @arch mix-browser.mcp-extract-mix-archives tool | en: Extracts multiple recognized containers into same-name folders through the browser API | zh: 通过浏览器应用 API 将多个识别出的容器释放到同名文件夹
+    @server.tool()
+    def extract_mix_archives_to_folders(
+        destination_directory: str,
+        archive_paths: list[str],
+    ) -> dict[str, object]:
+        """Extract recognized container archives into same-name folders without modifying the archives."""
+        return _tool_call(
+            lambda: api.extract_mix_archives_to_folders(
+                tuple(Path(path) for path in archive_paths),
+                Path(destination_directory),
+            )
+        )
+
+    # @arch mix-browser.mcp-extract-nested-containers tool | en: Extracts nested containers into same-name folders beside a backing archive | zh: 将内嵌容器解包到物理父归档旁的同名文件夹
+    @server.tool()
+    def extract_nested_mix_entries_to_folders(
+        path: str,
+        entry_ids: list[int],
+        destination_directory: str,
+        parent_entry_ids: list[int] | None = None,
+    ) -> dict[str, object]:
+        """Extract selected nested containers into same-name folders beside their backing archive."""
+        return _tool_call(
+            lambda: api.extract_nested_mix_entries_to_folders(
+                Path(path),
+                tuple(entry_ids),
+                Path(destination_directory),
+                parent_entry_ids=tuple(parent_entry_ids or ()),
+            )
+        )
+
     # @arch mix-browser.mcp-create-directory tool | en: Creates one directory inside a filesystem folder | zh: 在文件系统目录中创建一个子目录
     @server.tool()
     def create_directory(path: str, name: str) -> dict[str, object]:
@@ -109,6 +141,48 @@ def create_server(application: MixBrowserApplication | None = None) -> FastMCP:
     ) -> dict[str, object]:
         """Create an empty standard MIX archive, optionally replacing an existing path."""
         return _tool_call(lambda: api.create_empty_mix(Path(path), overwrite=overwrite))
+
+    # @arch mix-browser.mcp-create-mix-from-files tool | en: Creates a MIX archive from local files and can remove sources after creation | zh: 从本地文件创建 MIX 归档并可在创建后移除源文件
+    @server.tool()
+    def create_mix_from_files(
+        path: str,
+        source_paths: list[str],
+        overwrite: bool = False,
+        move_sources: bool = False,
+        item_names: list[str] | None = None,
+    ) -> dict[str, object]:
+        """Create a MIX archive from local files with optional item names, optionally removing sources after creation."""
+        return _tool_call(
+            lambda: api.create_mix_from_files(
+                Path(path),
+                tuple(Path(source) for source in source_paths),
+                item_names=tuple(item_names) if item_names is not None else None,
+                move_sources=move_sources,
+                overwrite=overwrite,
+            )
+        )
+
+    # @arch mix-browser.mcp-create-mix-from-entries tool | en: Packs selected MIX entries into a nested MIX archive | zh: 将选中的 MIX 条目打包为内嵌 MIX 归档
+    @server.tool()
+    def create_mix_from_archive_entries(
+        path: str,
+        name: str,
+        entry_ids: list[int],
+        parent_entry_ids: list[int] | None = None,
+        move_entries: bool = False,
+        overwrite: bool = False,
+    ) -> dict[str, object]:
+        """Create a nested MIX from selected entries, optionally moving the originals."""
+        return _tool_call(
+            lambda: api.create_mix_from_archive_entries(
+                Path(path),
+                name,
+                tuple(entry_ids),
+                parent_entry_ids=tuple(parent_entry_ids or ()),
+                move_entries=move_entries,
+                overwrite=overwrite,
+            )
+        )
 
     # @arch mix-browser.mcp-inspect-mix tool | en: Lists the entries and resolved names of a MIX archive | zh: 列出 MIX 归档条目与解析出的名称
     @server.tool()
@@ -180,7 +254,7 @@ def create_server(application: MixBrowserApplication | None = None) -> FastMCP:
             )
         )
 
-    # @arch mix-browser.mcp-edit-mix-entries tool | en: Deletes, renames, or copies entries using the MIX archive edit API | zh: 通过 MIX 归档编辑 API 删除、重命名或复制条目
+    # @arch mix-browser.mcp-edit-mix-entries tool | en: Deletes, renames, copies, or adds entries using the MIX archive edit API | zh: 通过 MIX 归档编辑 API 删除、重命名、复制或添加条目
     @server.tool()
     def edit_mix_entries(
         path: str,
@@ -190,8 +264,10 @@ def create_server(application: MixBrowserApplication | None = None) -> FastMCP:
         source_archive_path: str | None = None,
         source_parent_entry_ids: list[int] | None = None,
         copy_entry_ids: list[int] | None = None,
+        add_file_paths: list[str] | None = None,
+        overwrite_added_files: bool = False,
     ) -> dict[str, object]:
-        """Delete, rename, or copy entries in a MIX archive or nested archive."""
+        """Delete, rename, copy, or add entries in a MIX archive or nested archive."""
         try:
             renames = {
                 int(entry_id, 16 if entry_id.casefold().startswith("0x") else 10): name
@@ -208,6 +284,8 @@ def create_server(application: MixBrowserApplication | None = None) -> FastMCP:
                 source_archive_path=Path(source_archive_path) if source_archive_path else None,
                 source_parent_entry_ids=tuple(source_parent_entry_ids or ()),
                 copy_entry_ids=tuple(copy_entry_ids or ()),
+                add_file_paths=tuple(Path(file_path) for file_path in (add_file_paths or ())),
+                overwrite_added_files=overwrite_added_files,
             )
         )
 
@@ -305,8 +383,12 @@ def create_server(application: MixBrowserApplication | None = None) -> FastMCP:
         mix_file_association: bool | None = None,
         container_file_associations: dict[str, bool] | None = None,
         container_file_context_menus: dict[str, bool] | None = None,
+        file_context_mix_copy: bool | None = None,
+        file_context_mix_move: bool | None = None,
+        container_file_extract_context_menus: dict[str, bool] | None = None,
+        context_menu_submenu: bool | None = None,
     ) -> dict[str, object]:
-        """Register or remove Windows Explorer integrations for supported container extensions."""
+        """Register Windows Explorer commands and optionally group file commands in one submenu."""
         return _tool_call(
             lambda: api.configure_system_integration(
                 directory_context_menu=directory_context_menu,
@@ -315,6 +397,10 @@ def create_server(application: MixBrowserApplication | None = None) -> FastMCP:
                 mix_file_association=mix_file_association,
                 container_file_associations=container_file_associations,
                 container_file_context_menus=container_file_context_menus,
+                file_context_mix_copy=file_context_mix_copy,
+                file_context_mix_move=file_context_mix_move,
+                container_file_extract_context_menus=container_file_extract_context_menus,
+                context_menu_submenu=context_menu_submenu,
             )
         )
 

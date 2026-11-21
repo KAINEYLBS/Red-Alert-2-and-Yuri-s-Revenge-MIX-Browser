@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import os
+import stat
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-from mix_browser.features.archive.domain import MixEntry, MixFormatError
+from mix_browser.features.archive.domain import (
+    LOCAL_MIX_DATABASE_NAME,
+    MixEntry,
+    MixFormatError,
+    is_readable_mix_name,
+)
 from mix_browser.features.archive.loader import MixArchiveLoader
 from mix_browser.features.archive.name_catalog import (
     community_name_database_size_bytes,
@@ -18,6 +25,7 @@ from mix_browser.features.archive.writer import (
     add_files_to_mix,
     create_empty_mix_archive,
     edit_mix_entries,
+    mix_file_ids_for_archive,
     write_back_mix_entry,
 )
 from mix_browser.shared.application_errors import ApplicationApiError
@@ -69,6 +77,177 @@ class MixArchiveApplication:
             "archive_path": str(path),
             "entry_count": 0,
             "size_bytes": 10,
+        }
+
+    # @arch mix-browser.create-mix-from-files service | en: Creates a populated MIX archive from files and atomically installs it at the destination | zh: 从文件创建完整 MIX 归档并原子安装到目标位置
+    def create_mix_from_files(
+        self,
+        destination: Path,
+        source_paths: tuple[Path, ...],
+        *,
+        item_names: tuple[str, ...] | None = None,
+        overwrite: bool = False,
+        progress: Callable[[int, int], None] | None = None,
+        cancellation_requested: Callable[[], bool] | None = None,
+    ) -> dict[str, object]:
+        if not source_paths:
+            raise ApplicationApiError("invalid_input", "At least one source file is required.")
+        if item_names is not None and len(item_names) != len(source_paths):
+            raise ApplicationApiError(
+                "invalid_input",
+                "The number of MIX item names must match the number of source files.",
+            )
+
+        requested_path = destination.expanduser()
+        if requested_path.suffix.casefold() != ".mix":
+            raise ApplicationApiError("invalid_output", "The destination must use the .mix extension.")
+        parent = requested_path.parent.resolve()
+        if not parent.is_dir():
+            raise ApplicationApiError("not_directory", f"The destination is not a directory: {parent}")
+        target = parent / requested_path.name
+        source_keys = {os.path.normcase(str(path.expanduser().resolve())) for path in source_paths}
+        if os.path.normcase(str(target.resolve(strict=False))) in source_keys:
+            raise ApplicationApiError("invalid_input", "The new MIX archive cannot replace one of its source files.")
+
+        initial_signature: tuple[int, int] | None = None
+        if os.path.lexists(target):
+            if not overwrite:
+                raise ApplicationApiError("output_exists", f"The output path already exists: {target}")
+            if target.is_symlink() or not target.is_file():
+                raise ApplicationApiError("invalid_output", f"The output path is not a regular file: {target}")
+            metadata = target.stat()
+            initial_signature = (metadata.st_size, metadata.st_mtime_ns)
+
+        try:
+            with tempfile.TemporaryDirectory(prefix=".mix-browser-create-", dir=parent) as temporary_root:
+                staged_path = Path(temporary_root) / target.name
+                self.create_empty_mix(staged_path)
+                added = self.add_files(
+                    staged_path,
+                    source_paths,
+                    item_names=item_names,
+                    progress=progress,
+                    cancellation_requested=cancellation_requested,
+                )
+                if cancellation_requested and cancellation_requested():
+                    raise InterruptedError("MIX creation was cancelled.")
+
+                if initial_signature is None:
+                    if os.path.lexists(target):
+                        raise ApplicationApiError("conflict", f"The output path appeared during creation: {target}")
+                    os.rename(staged_path, target)
+                else:
+                    try:
+                        current = target.lstat()
+                    except OSError as exc:
+                        raise ApplicationApiError("conflict", f"The output path changed during creation: {target}") from exc
+                    if not stat.S_ISREG(current.st_mode):
+                        raise ApplicationApiError("conflict", f"The output path changed during creation: {target}")
+                    if (current.st_size, current.st_mtime_ns) != initial_signature:
+                        raise ApplicationApiError("conflict", f"The output path changed during creation: {target}")
+                    os.replace(staged_path, target)
+        except ApplicationApiError:
+            raise
+        except InterruptedError:
+            raise
+        except PermissionError as exc:
+            raise ApplicationApiError("access_denied", str(exc)) from exc
+        except (MixFormatError, ValueError) as exc:
+            raise ApplicationApiError("invalid_input", str(exc)) from exc
+        except OSError as exc:
+            raise self._io_error(exc, "The MIX archive could not be created from the selected files.") from exc
+
+        return {
+            "archive_path": str(target),
+            "added_names": list(added["added_names"]),
+            "entry_count": len(added["added_names"]),
+            "size_bytes": target.stat().st_size,
+        }
+
+    # @arch mix-browser.create-nested-mix-from-entries service | en: Packs selected entries into a nested MIX and atomically adds or moves it within the parent archive | zh: 将选中条目打包为内嵌 MIX，并在父归档中原子添加或移动
+    def create_mix_from_archive_entries(
+        self,
+        archive_path: Path,
+        name: str,
+        entry_ids: tuple[int, ...],
+        *,
+        parent_entry_ids: tuple[int, ...] = (),
+        move_entries: bool = False,
+        overwrite: bool = False,
+        expected_archive_signature: tuple[int, int] | None = None,
+        progress: Callable[[int, int], None] | None = None,
+        cancellation_requested: Callable[[], bool] | None = None,
+    ) -> dict[str, object]:
+        if not entry_ids:
+            raise ApplicationApiError("invalid_input", "At least one MIX entry is required.")
+        if len(entry_ids) != len(set(entry_ids)):
+            raise ApplicationApiError("invalid_input", "MIX entry IDs must be unique.")
+        if (
+            Path(name).suffix.casefold() != ".mix"
+            or Path(name).name != name
+            or not is_readable_mix_name(name)
+            or name.casefold() == LOCAL_MIX_DATABASE_NAME.casefold()
+        ):
+            raise ApplicationApiError("invalid_output", "The nested archive name must be a valid .mix file name.")
+
+        parent_archive = self._load_archive(archive_path, parent_entry_ids)
+        if (
+            expected_archive_signature is not None
+            and parent_archive.file_signature != expected_archive_signature
+        ):
+            raise ApplicationApiError("conflict", "The MIX archive changed after the operation was confirmed.")
+        selected_entries = tuple(
+            self._find_entry(parent_archive.entries, entry_id) for entry_id in entry_ids
+        )
+        reserved_id = mix_file_ids_for_archive(parent_archive, (LOCAL_MIX_DATABASE_NAME,))[0]
+        if any(entry.file_id == reserved_id for entry in selected_entries):
+            raise ApplicationApiError("invalid_input", "The embedded MIX name database cannot be packed as a regular item.")
+
+        try:
+            with tempfile.TemporaryDirectory(prefix="mix-browser-nested-mix-") as temporary_root:
+                nested_path = Path(temporary_root) / name
+                create_empty_mix_archive(nested_path)
+                nested_archive = self._load_archive(nested_path, ())
+                self.edit_entries(
+                    nested_path,
+                    source_archive_path=parent_archive.path,
+                    source_parent_entry_ids=parent_entry_ids,
+                    copy_entry_ids=entry_ids,
+                    expected_archive_signature=nested_archive.file_signature,
+                    progress=progress,
+                    cancellation_requested=cancellation_requested,
+                )
+                if cancellation_requested and cancellation_requested():
+                    raise InterruptedError("Nested MIX creation was cancelled.")
+                result = self.edit_entries(
+                    parent_archive.path,
+                    parent_entry_ids=parent_entry_ids,
+                    remove_entry_ids=entry_ids if move_entries else (),
+                    add_file_paths=(nested_path,),
+                    overwrite_added_files=overwrite,
+                    expected_archive_signature=parent_archive.file_signature,
+                    progress=progress,
+                    cancellation_requested=cancellation_requested,
+                )
+        except ApplicationApiError:
+            raise
+        except InterruptedError:
+            raise
+        except FileNotFoundError as exc:
+            raise ApplicationApiError("entry_not_found", str(exc)) from exc
+        except PermissionError as exc:
+            raise ApplicationApiError("access_denied", str(exc)) from exc
+        except (MixFormatError, ValueError) as exc:
+            raise ApplicationApiError("invalid_input", str(exc)) from exc
+        except OSError as exc:
+            raise self._io_error(exc, "The selected entries could not be packed into a nested MIX.") from exc
+
+        return {
+            "archive_path": str(result["archive_path"]),
+            "parent_entry_ids": list(parent_entry_ids),
+            "added_names": list(result["added_file_names"]),
+            "removed_names": list(result["removed_names"]),
+            "archive_modified_ns": result["archive_modified_ns"],
         }
 
     def inspect(
@@ -183,6 +362,7 @@ class MixArchiveApplication:
         archive_path: Path,
         source_paths: tuple[Path, ...],
         *,
+        item_names: tuple[str, ...] | None = None,
         parent_entry_ids: tuple[int, ...] = (),
         overwrite: bool = False,
         expected_archive_signature: tuple[int, int] | None = None,
@@ -203,6 +383,7 @@ class MixArchiveApplication:
                     archive,
                     source_paths,
                     Path(temporary_root),
+                    item_names=item_names,
                     overwrite=overwrite,
                     expected_archive_signature=archive.file_signature,
                     progress=progress,
@@ -243,11 +424,13 @@ class MixArchiveApplication:
         source_archive_path: Path | None = None,
         source_parent_entry_ids: tuple[int, ...] = (),
         copy_entry_ids: tuple[int, ...] = (),
+        add_file_paths: tuple[Path, ...] = (),
+        overwrite_added_files: bool = False,
         expected_archive_signature: tuple[int, int] | None = None,
         progress: Callable[[int, int], None] | None = None,
         cancellation_requested: Callable[[], bool] | None = None,
     ) -> dict[str, object]:
-        if not remove_entry_ids and not rename_entries and not copy_entry_ids:
+        if not remove_entry_ids and not rename_entries and not copy_entry_ids and not add_file_paths:
             raise ApplicationApiError("invalid_input", "At least one MIX edit is required.")
         target_archive = self._load_archive(archive_path, parent_entry_ids)
         if (
@@ -269,12 +452,14 @@ class MixArchiveApplication:
             copy_entries = ()
         try:
             with tempfile.TemporaryDirectory(prefix="mix-browser-edit-") as temporary_root:
-                signature, removed, renamed, copied = edit_mix_entries(
+                signature, removed, renamed, copied, added_files = edit_mix_entries(
                     target_archive,
                     temporary_root=Path(temporary_root),
                     remove_ids=remove_entry_ids,
                     rename_entries=rename_entries,
                     copy_entries=copy_entries,
+                    add_file_paths=add_file_paths,
+                    overwrite_added_files=overwrite_added_files,
                     expected_archive_signature=target_archive.file_signature,
                     progress=progress,
                     cancellation_requested=cancellation_requested,
@@ -301,6 +486,7 @@ class MixArchiveApplication:
             "removed_names": list(removed),
             "renamed_names": list(renamed),
             "copied_names": list(copied),
+            "added_file_names": list(added_files),
             "archive_modified_ns": signature[1],
         }
 

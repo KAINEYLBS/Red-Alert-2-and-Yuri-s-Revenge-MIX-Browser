@@ -217,9 +217,11 @@ copy /b "%VLC_RUNTIME%\COPYING.txt" "%LICENSE_ROOT%\VLC\COPYING.txt" >nul
 if errorlevel 1 goto :license_copy_failed
 copy /b "%VLC_RUNTIME%\README.txt" "%LICENSE_ROOT%\VLC\README.txt" >nul
 if errorlevel 1 goto :license_copy_failed
-copy /b "%~dp0docs\licenses\VLC\COPYING.LIB" "%LICENSE_ROOT%\VLC\COPYING.LIB" >nul
-if errorlevel 1 goto :license_copy_failed
-if not exist "%LICENSE_ROOT%\VLC\COPYING.LIB" goto :license_copy_failed
+robocopy "%~dp0docs\licenses" "%LICENSE_ROOT%" /E /R:1 /W:1 /XD __pycache__ /XF *.pyc *.pyo >nul
+if errorlevel 8 goto :license_copy_failed
+for %%F in (Mesa\MIT.txt Mesa\Khronos.txt Mesa\Boost-1.0.txt LLVM\LICENSE.TXT CFFI\LICENSE pycparser\LICENSE VLC\COPYING.LIB Lucide\ISC.txt) do (
+    if not exist "%LICENSE_ROOT%\%%F" goto :license_copy_failed
+)
 copy /b "%~dp0docs\vlc_runtime_licenses.md" "%LICENSE_ROOT%\VLC\PLUGIN_LICENSES.md" >nul
 if errorlevel 1 goto :license_copy_failed
 if not exist "%LICENSE_ROOT%\VLC\PLUGIN_LICENSES.md" goto :license_copy_failed

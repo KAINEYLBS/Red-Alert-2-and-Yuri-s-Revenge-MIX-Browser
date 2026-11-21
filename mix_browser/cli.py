@@ -108,6 +108,12 @@ def build_parser() -> argparse.ArgumentParser:
     directory_transfer.add_argument("sources", nargs="+", type=Path)
     directory_transfer.add_argument("--move", action="store_true", help="Move instead of copy")
     directory_transfer.add_argument("--overwrite", action="store_true", help="Replace matching destination items")
+    directory_extract_archives = directory_commands.add_parser(
+        "extract-mix-archives",
+        help="Extract recognized container archives into same-name folders",
+    )
+    directory_extract_archives.add_argument("path", type=Path)
+    directory_extract_archives.add_argument("archives", nargs="+", type=Path)
 
     archive_parser = commands.add_parser("archive", help="Inspect and modify MIX archives")
     archive_commands = archive_parser.add_subparsers(dest="archive_command", required=True)
@@ -118,6 +124,33 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Replace an existing output path",
     )
+    archive_create_files = archive_commands.add_parser(
+        "create-from-files",
+        help="Create a MIX archive from selected files (copy by default)",
+    )
+    archive_create_files.add_argument("path", type=Path)
+    archive_create_files.add_argument("sources", nargs="+", type=Path)
+    archive_create_files.add_argument("--overwrite", action="store_true", help="Replace an existing output path")
+    archive_create_files.add_argument(
+        "--item-names",
+        nargs="+",
+        help="MIX item names corresponding to sources in order (defaults to source file names)",
+    )
+    archive_create_files.add_argument(
+        "--move-sources",
+        action="store_true",
+        help="Remove source files after the MIX archive is created",
+    )
+    archive_create_entries = archive_commands.add_parser(
+        "create-from-entries",
+        help="Pack selected entries into a nested MIX archive",
+    )
+    archive_create_entries.add_argument("path", type=Path)
+    archive_create_entries.add_argument("name")
+    archive_create_entries.add_argument("entry_ids", nargs="+", type=_entry_id)
+    archive_create_entries.add_argument("--parent-entry-id", action="append", type=_entry_id, default=[])
+    archive_create_entries.add_argument("--move-entries", action="store_true", help="Remove selected entries after packing")
+    archive_create_entries.add_argument("--overwrite", action="store_true", help="Replace an entry with the same name")
 
     archive_inspect = archive_commands.add_parser("inspect", help="List entries in a MIX archive")
     archive_inspect.add_argument("path", type=Path)
@@ -128,6 +161,14 @@ def build_parser() -> argparse.ArgumentParser:
     archive_extract.add_argument("entry_id", type=_entry_id)
     archive_extract.add_argument("output", type=Path)
     archive_extract.add_argument("--parent-entry-id", action="append", type=_entry_id, default=[])
+    archive_extract_entries = archive_commands.add_parser(
+        "extract-entries-to-folders",
+        help="Extract selected nested containers into same-name folders",
+    )
+    archive_extract_entries.add_argument("path", type=Path)
+    archive_extract_entries.add_argument("destination", type=Path)
+    archive_extract_entries.add_argument("entry_ids", nargs="+", type=_entry_id)
+    archive_extract_entries.add_argument("--parent-entry-id", action="append", type=_entry_id, default=[])
 
     archive_replace = archive_commands.add_parser("replace", help="Replace one MIX entry")
     archive_replace.add_argument("path", type=Path)
@@ -141,7 +182,7 @@ def build_parser() -> argparse.ArgumentParser:
     archive_add.add_argument("--parent-entry-id", action="append", type=_entry_id, default=[])
     archive_add.add_argument("--overwrite", action="store_true", help="Replace entries with matching names or IDs")
 
-    archive_edit = archive_commands.add_parser("edit", help="Delete, rename, or copy MIX entries")
+    archive_edit = archive_commands.add_parser("edit", help="Delete, rename, copy, or add files in a MIX archive")
     archive_edit.add_argument("path", type=Path)
     archive_edit.add_argument("--parent-entry-id", action="append", type=_entry_id, default=[])
     archive_edit.add_argument("--remove-entry-id", action="append", type=_entry_id, default=[])
@@ -149,6 +190,8 @@ def build_parser() -> argparse.ArgumentParser:
     archive_edit.add_argument("--source-archive", type=Path)
     archive_edit.add_argument("--source-parent-entry-id", action="append", type=_entry_id, default=[])
     archive_edit.add_argument("--copy-entry-id", action="append", type=_entry_id, default=[])
+    archive_edit.add_argument("--add-file", action="append", type=Path, default=[])
+    archive_edit.add_argument("--overwrite-added-files", action="store_true")
 
     search_parser = commands.add_parser("search", help="Search a directory tree or MIX archive")
     search_parser.add_argument("root", type=Path)
@@ -194,6 +237,9 @@ def build_parser() -> argparse.ArgumentParser:
         ("--mix-context-menu", ".mix context menu registration"),
         ("--mix-new-menu", ".mix New menu registration"),
         ("--mix-file-association", ".mix file handler registration"),
+        ("--file-context-mix-copy", "Create MIX and copy selected files context menu"),
+        ("--file-context-mix-move", "Create MIX and move selected files context menu"),
+        ("--context-menu-submenu", "Group file commands in one Explorer submenu"),
     ):
         integration_configure.add_argument(
             option,
@@ -211,6 +257,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         metavar="EXTENSION=register|unregister",
         help="Register or remove a container extension context menu; repeat per extension",
+    )
+    integration_configure.add_argument(
+        "--container-extract-context-menu",
+        action="append",
+        metavar="EXTENSION=register|unregister",
+        help="Register or remove a container extraction command; repeat per extension",
     )
     return parser
 
@@ -234,6 +286,11 @@ def _dispatch(application: MixBrowserApplication, arguments: argparse.Namespace)
                 move=arguments.move,
                 overwrite=arguments.overwrite,
             )
+        if arguments.directory_command == "extract-mix-archives":
+            return application.extract_mix_archives_to_folders(
+                tuple(arguments.archives),
+                arguments.path,
+            )
         if arguments.directory_command == "add":
             return application.add_files_to_directory(
                 arguments.path,
@@ -247,6 +304,23 @@ def _dispatch(application: MixBrowserApplication, arguments: argparse.Namespace)
                 arguments.path,
                 overwrite=arguments.overwrite,
             )
+        if arguments.archive_command == "create-from-files":
+            return application.create_mix_from_files(
+                arguments.path,
+                tuple(arguments.sources),
+                item_names=tuple(arguments.item_names) if arguments.item_names else None,
+                move_sources=arguments.move_sources,
+                overwrite=arguments.overwrite,
+            )
+        if arguments.archive_command == "create-from-entries":
+            return application.create_mix_from_archive_entries(
+                arguments.path,
+                arguments.name,
+                tuple(arguments.entry_ids),
+                parent_entry_ids=tuple(arguments.parent_entry_id),
+                move_entries=arguments.move_entries,
+                overwrite=arguments.overwrite,
+            )
         if arguments.archive_command == "inspect":
             return application.inspect_mix(
                 arguments.path,
@@ -257,6 +331,13 @@ def _dispatch(application: MixBrowserApplication, arguments: argparse.Namespace)
                 arguments.path,
                 arguments.entry_id,
                 arguments.output,
+                parent_entry_ids=tuple(arguments.parent_entry_id),
+            )
+        if arguments.archive_command == "extract-entries-to-folders":
+            return application.extract_nested_mix_entries_to_folders(
+                arguments.path,
+                tuple(arguments.entry_ids),
+                arguments.destination,
                 parent_entry_ids=tuple(arguments.parent_entry_id),
             )
         if arguments.archive_command == "add":
@@ -285,6 +366,8 @@ def _dispatch(application: MixBrowserApplication, arguments: argparse.Namespace)
                 source_archive_path=arguments.source_archive,
                 source_parent_entry_ids=tuple(arguments.source_parent_entry_id),
                 copy_entry_ids=tuple(arguments.copy_entry_id),
+                add_file_paths=tuple(arguments.add_file),
+                overwrite_added_files=arguments.overwrite_added_files,
             )
         return application.replace_mix_entry(
             arguments.path,
@@ -341,6 +424,18 @@ def _dispatch(application: MixBrowserApplication, arguments: argparse.Namespace)
             ),
             container_file_context_menus=_container_registration_choices(
                 arguments.container_context_menu
+            ),
+            file_context_mix_copy=_registration_choice(
+                arguments.file_context_mix_copy
+            ),
+            file_context_mix_move=_registration_choice(
+                arguments.file_context_mix_move
+            ),
+            container_file_extract_context_menus=_container_registration_choices(
+                arguments.container_extract_context_menu
+            ),
+            context_menu_submenu=_registration_choice(
+                arguments.context_menu_submenu
             ),
         )
     return application.detect_file_type(arguments.path)

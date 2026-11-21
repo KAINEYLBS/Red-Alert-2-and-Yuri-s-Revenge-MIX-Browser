@@ -99,7 +99,14 @@ class PreviewSupportDialog(QDialog):
             (
                 QT_TRANSLATE_NOOP(
                     "PreviewSupportDialog",
-                    "VXL previews show voxel geometry without HVA transforms or limb animation. HVA files have no standalone preview.",
+                    "Selecting a VXL previews its static geometry. Selecting an HVA previews the same-name VXL with HVA poses from the same MIX or folder; use the frame selector to inspect poses. An HVA without a valid pair cannot be previewed.",
+                ),
+                (),
+            ),
+            (
+                QT_TRANSLATE_NOOP(
+                    "PreviewSupportDialog",
+                    "HVA entries larger than 16 MiB or with more than 1,024 frames cannot be applied.",
                 ),
                 (),
             ),

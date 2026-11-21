@@ -1,74 +1,164 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 from mix_browser.features.archive.type_detection import MIX_CONTAINER_SUFFIXES
 from mix_browser.shared.application_identity import APPLICATION_DISPLAY_NAME
+from mix_browser.shared.semantic_colors import set_semantic_status_style
 
 
-# @arch mix-browser.system-integration-preferences component | en: Lets users configure Windows Explorer integration for supported container extensions | zh: 让用户配置受支持容器扩展名的 Windows 资源管理器集成
+# @arch mix-browser.system-integration-preferences component | en: Lets users configure Windows Explorer integration for MIX files and supported containers | zh: 让用户配置 MIX 文件与受支持容器的 Windows 资源管理器集成
 class SystemIntegrationSettingsPage(QWidget):
     open_container_default_requested = Signal(str)
 
     def __init__(
         self,
         state: dict[str, object],
+        *,
+        show_operations_only_on_issues: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._initial_state = dict(state)
 
-        layout = QVBoxLayout(self)
-        context_group = QGroupBox(self.tr("Windows Explorer"), self)
+        page_layout = QVBoxLayout(self)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_scroll = QScrollArea(self)
+        page_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        page_scroll.setWidgetResizable(True)
+        content = QWidget(page_scroll)
+        layout = QVBoxLayout(content)
+        page_scroll.setWidget(content)
+        page_layout.addWidget(page_scroll)
+
+        context_section = QWidget(content)
+        context_section_layout = QVBoxLayout(context_section)
+        context_section_layout.setContentsMargins(0, 0, 0, 0)
+        context_group = QGroupBox(context_section)
         context_layout = QVBoxLayout(context_group)
+        context_bulk_row = QHBoxLayout()
+        self.select_all_context_button = QPushButton(
+            self.tr("Select all"), context_group
+        )
+        self.clear_all_context_button = QPushButton(
+            self.tr("Clear all"), context_group
+        )
+        self.select_all_context_button.clicked.connect(
+            lambda: self._set_general_integrations(True)
+        )
+        self.clear_all_context_button.clicked.connect(
+            lambda: self._set_general_integrations(False)
+        )
+        context_heading = QLabel(self.tr("Windows Explorer"), context_group)
+        context_heading.setStyleSheet("font-weight: 600;")
+        context_bulk_row.addWidget(context_heading)
+        context_bulk_row.addStretch(1)
+        context_bulk_row.addWidget(self.select_all_context_button)
+        context_bulk_row.addWidget(self.clear_all_context_button)
+        context_layout.addLayout(context_bulk_row)
         self.directory_context_menu_checkbox = QCheckBox(
             self.tr('Add "Browse with {0}" to directory menus').format(
                 APPLICATION_DISPLAY_NAME
             ),
             context_group,
         )
-        self.mix_new_menu_checkbox = QCheckBox(
-            self.tr("Add MIX archive to the New menu"),
+        self.context_menu_submenu_checkbox = QCheckBox(
+            self.tr("Group file commands under one submenu"),
             context_group,
         )
         self.directory_context_menu_checkbox.setChecked(
             bool(state.get("directory_context_menu"))
         )
-        self.mix_new_menu_checkbox.setChecked(bool(state.get("mix_new_menu")))
+        self.context_menu_submenu_checkbox.setChecked(
+            bool(state.get("context_menu_submenu", True))
+        )
         context_layout.addWidget(self.directory_context_menu_checkbox)
-        context_layout.addWidget(self.mix_new_menu_checkbox)
-        layout.addWidget(context_group)
+        context_layout.addWidget(self.context_menu_submenu_checkbox)
+        context_section_layout.addWidget(context_group)
+        layout.addWidget(context_section)
+
+        operation_dialog_group = QGroupBox(content)
+        operation_dialog_layout = QVBoxLayout(operation_dialog_group)
+        operation_dialog_heading = QLabel(
+            self.tr("Explorer operation windows"), operation_dialog_group
+        )
+        operation_dialog_heading.setStyleSheet("font-weight: 600;")
+        operation_dialog_layout.addWidget(operation_dialog_heading)
+        self.operation_dialogs_only_on_issues_checkbox = QCheckBox(
+            self.tr(
+                "Only show operation windows for items marked * when there are "
+                "conflicts or errors"
+            ),
+            operation_dialog_group,
+        )
+        self.operation_dialogs_only_on_issues_checkbox.setChecked(
+            show_operations_only_on_issues
+        )
+        operation_dialog_layout.addWidget(
+            self.operation_dialogs_only_on_issues_checkbox
+        )
+        operation_dialog_group.setEnabled(bool(state.get("supported")))
+        layout.addWidget(operation_dialog_group)
 
         self.container_tables: dict[str, QTableWidget] = {}
         self.container_context_checks: dict[str, QTableWidgetItem] = {}
+        self.container_extract_checks: dict[str, QTableWidgetItem] = {}
         self.container_handler_checks: dict[str, QTableWidgetItem] = {}
         self.container_default_statuses: dict[str, QLabel] = {}
         self.container_default_buttons: dict[str, QPushButton] = {}
+        self.mix_new_menu_item: QTableWidgetItem | None = None
         self._pending_probe_extensions: set[str] = set()
-        associations_group = QGroupBox(self.tr("Container file integration"), self)
+        associations_section = QWidget(content)
+        associations_section_layout = QVBoxLayout(associations_section)
+        associations_section_layout.setContentsMargins(0, 0, 0, 0)
+        associations_group = QGroupBox(associations_section)
         associations_layout = QVBoxLayout(associations_group)
+        associations_header_row = QHBoxLayout()
+        self.select_all_associations_button = QPushButton(
+            self.tr("Select all"), associations_group
+        )
+        self.clear_all_associations_button = QPushButton(
+            self.tr("Clear all"), associations_group
+        )
+        self.select_all_associations_button.clicked.connect(
+            lambda: self._set_all_file_container_integrations(True)
+        )
+        self.clear_all_associations_button.clicked.connect(
+            lambda: self._set_all_file_container_integrations(False)
+        )
+        associations_heading = QLabel(
+            self.tr("File and container integration"), associations_group
+        )
+        associations_heading.setStyleSheet("font-weight: 600;")
+        associations_header_row.addWidget(associations_heading)
+        associations_header_row.addStretch(1)
+        associations_header_row.addWidget(self.select_all_associations_button)
+        associations_header_row.addWidget(self.clear_all_associations_button)
+        associations_layout.addLayout(associations_header_row)
         association_notice = QLabel(
             self.tr(
-                "Choose which container extensions appear in the Windows context "
-                "menu and register as open handlers. Windows controls the default app."
+                "Configure file commands, container browse and extraction actions, "
+                "and open handlers. Windows controls the default app."
             ),
             associations_group,
         )
@@ -76,56 +166,43 @@ class SystemIntegrationSettingsPage(QWidget):
         association_notice.setProperty("visualRole", "description")
         associations_layout.addWidget(association_notice)
 
-        bulk_row = QHBoxLayout()
-        self.select_all_containers_button = QPushButton(
-            self.tr("Select all extensions"), associations_group
+        mix_commands_heading = QLabel(
+            self.tr("MIX creation commands"), associations_group
         )
-        self.clear_all_containers_button = QPushButton(
-            self.tr("Clear all extensions"), associations_group
+        associations_layout.addWidget(mix_commands_heading)
+        self.file_mix_copy_checkbox = QCheckBox(
+            self.tr("Add a command to create a MIX and copy selected files *"),
+            associations_group,
         )
-        self.select_all_containers_button.clicked.connect(
-            lambda: self._set_all_container_integrations(True)
+        self.file_mix_move_checkbox = QCheckBox(
+            self.tr("Add a command to create a MIX and move selected files *"),
+            associations_group,
         )
-        self.clear_all_containers_button.clicked.connect(
-            lambda: self._set_all_container_integrations(False)
+        self.file_mix_copy_checkbox.setChecked(
+            bool(state.get("file_context_mix_copy"))
         )
-        bulk_row.addWidget(self.select_all_containers_button)
-        bulk_row.addWidget(self.clear_all_containers_button)
-        bulk_row.addStretch(1)
-        associations_layout.addLayout(bulk_row)
+        self.file_mix_move_checkbox.setChecked(
+            bool(state.get("file_context_mix_move"))
+        )
+        associations_layout.addWidget(self.file_mix_copy_checkbox)
+        associations_layout.addWidget(self.file_mix_move_checkbox)
 
         self._container_state = dict(state)
         extensions_widget = QWidget(associations_group)
         extensions_layout = QVBoxLayout(extensions_widget)
         extensions_layout.setContentsMargins(0, 0, 0, 0)
         context_states = state.get("container_file_context_menus", {})
+        extract_states = state.get("container_file_extract_context_menus", {})
         handler_states = state.get("container_file_associations", {})
         for extension in sorted(MIX_CONTAINER_SUFFIXES):
-            extension_group = QGroupBox(extension, extensions_widget)
+            extension_group = QWidget(extensions_widget)
             extension_layout = QVBoxLayout(extension_group)
-            extension_buttons = QHBoxLayout()
-            select_extension_button = QPushButton(
-                self.tr("Select all for {0}").format(extension), extension_group
-            )
-            clear_extension_button = QPushButton(
-                self.tr("Clear {0}").format(extension), extension_group
-            )
-            select_extension_button.clicked.connect(
-                lambda _checked=False, suffix=extension: self._set_extension_integrations(
-                    suffix, True
-                )
-            )
-            clear_extension_button.clicked.connect(
-                lambda _checked=False, suffix=extension: self._set_extension_integrations(
-                    suffix, False
-                )
-            )
-            extension_buttons.addWidget(select_extension_button)
-            extension_buttons.addWidget(clear_extension_button)
-            extension_buttons.addStretch(1)
-            extension_layout.addLayout(extension_buttons)
-
-            table = QTableWidget(2, 4, extension_group)
+            extension_layout.setContentsMargins(0, 8, 0, 8)
+            extension_heading = QLabel(extension, extension_group)
+            extension_heading.setStyleSheet("font-weight: 600;")
+            extension_layout.addWidget(extension_heading)
+            row_count = 4 if extension == ".mix" else 3
+            table = QTableWidget(row_count, 4, extension_group)
             table.setHorizontalHeaderLabels(
                 [
                     self.tr("Integration"),
@@ -159,6 +236,19 @@ class SystemIntegrationSettingsPage(QWidget):
             )
             table.setItem(0, 0, QTableWidgetItem(self.tr("Browse in context menu")))
             table.setItem(1, 0, QTableWidgetItem(self.tr("Open file handler")))
+            table.setItem(
+                2,
+                0,
+                QTableWidgetItem(
+                    self.tr("Extract to same-name folder(s) *")
+                ),
+            )
+            if extension == ".mix":
+                table.setItem(
+                    3,
+                    0,
+                    QTableWidgetItem(self.tr("Add MIX archive to the New menu")),
+                )
             context_item = QTableWidgetItem()
             context_item.setFlags(
                 Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable
@@ -177,8 +267,30 @@ class SystemIntegrationSettingsPage(QWidget):
                 if bool(handler_states.get(extension, False))
                 else Qt.CheckState.Unchecked
             )
+            extract_item = QTableWidgetItem()
+            extract_item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable
+            )
+            extract_item.setCheckState(
+                Qt.CheckState.Checked
+                if bool(extract_states.get(extension, False))
+                else Qt.CheckState.Unchecked
+            )
+            if extension == ".mix":
+                self.mix_new_menu_item = QTableWidgetItem()
+                self.mix_new_menu_item.setFlags(
+                    Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable
+                )
+                self.mix_new_menu_item.setCheckState(
+                    Qt.CheckState.Checked
+                    if bool(state.get("mix_new_menu"))
+                    else Qt.CheckState.Unchecked
+                )
             table.setItem(0, 1, context_item)
             table.setItem(1, 1, handler_item)
+            table.setItem(2, 1, extract_item)
+            if self.mix_new_menu_item is not None and extension == ".mix":
+                table.setItem(3, 1, self.mix_new_menu_item)
             table.setCellWidget(
                 0,
                 2,
@@ -204,8 +316,17 @@ class SystemIntegrationSettingsPage(QWidget):
             )
             table.setCellWidget(1, 3, default_button)
             table.setCellWidget(0, 3, QWidget(table))
+            table.setCellWidget(2, 2, QLabel(self.tr("Not applicable"), table))
+            table.setCellWidget(2, 3, QWidget(table))
+            if extension == ".mix":
+                table.setCellWidget(
+                    3,
+                    2,
+                    QLabel(self.tr("Not applicable"), table),
+                )
+                table.setCellWidget(3, 3, QWidget(table))
             table.itemChanged.connect(
-                lambda _item, suffix=extension: self._refresh_container_default_button(
+                lambda _item, suffix=extension: self._on_container_item_changed(
                     suffix
                 )
             )
@@ -213,8 +334,7 @@ class SystemIntegrationSettingsPage(QWidget):
                 table.setRowHeight(row, 48)
             table.setFixedHeight(
                 table.horizontalHeader().sizeHint().height()
-                + table.rowHeight(0)
-                + table.rowHeight(1)
+                + sum(table.rowHeight(row) for row in range(table.rowCount()))
                 + 2 * table.frameWidth()
             )
             extension_layout.addWidget(table)
@@ -222,31 +342,37 @@ class SystemIntegrationSettingsPage(QWidget):
             extensions_layout.addWidget(extension_group)
             self.container_tables[extension] = table
             self.container_context_checks[extension] = context_item
+            self.container_extract_checks[extension] = extract_item
             self.container_handler_checks[extension] = handler_item
             self.container_default_statuses[extension] = default_status
             self.container_default_buttons[extension] = default_button
-        associations_scroll = QScrollArea(associations_group)
-        associations_scroll.setWidgetResizable(True)
-        associations_scroll.setWidget(extensions_widget)
-        associations_layout.addWidget(associations_scroll, 1)
-        layout.addWidget(associations_group, 1)
+
+        for checkbox in (
+            self.directory_context_menu_checkbox,
+            self.context_menu_submenu_checkbox,
+            self.file_mix_copy_checkbox,
+            self.file_mix_move_checkbox,
+        ):
+            checkbox.toggled.connect(self._refresh_bulk_button_states)
+        associations_layout.addWidget(extensions_widget)
+        associations_section_layout.addWidget(associations_group)
+        layout.addWidget(associations_section)
 
         if not bool(state.get("supported")):
-            self.platform_notice = QLabel(self)
+            self.platform_notice = QLabel(content)
             self.platform_notice.setWordWrap(True)
             self.platform_notice.setText(
                 self.tr("Windows shell integration is only available on Windows.")
             )
-            for checkbox in (
-                self.directory_context_menu_checkbox,
-                self.mix_new_menu_checkbox,
-            ):
-                checkbox.setEnabled(False)
-            for table in self.container_tables.values():
-                table.setEnabled(False)
-            self.select_all_containers_button.setEnabled(False)
-            self.clear_all_containers_button.setEnabled(False)
+            context_section.setEnabled(False)
+            associations_section.setEnabled(False)
             layout.addWidget(self.platform_notice)
+        layout.addStretch(1)
+        self._refresh_bulk_button_states()
+
+    def _set_general_integrations(self, enabled: bool) -> None:
+        self.directory_context_menu_checkbox.setChecked(enabled)
+        self.context_menu_submenu_checkbox.setChecked(enabled)
 
     def _container_default_status(
         self,
@@ -287,28 +413,79 @@ class SystemIntegrationSettingsPage(QWidget):
             and extension not in self._pending_probe_extensions
         )
 
+    def _on_container_item_changed(self, extension: str) -> None:
+        self._refresh_container_default_button(extension)
+        self._refresh_bulk_button_states()
+
+    def _refresh_bulk_button_states(self, _checked: bool | None = None) -> None:
+        general_states = (
+            self.directory_context_menu_checkbox.isChecked(),
+            self.context_menu_submenu_checkbox.isChecked(),
+        )
+        self.select_all_context_button.setEnabled(not all(general_states))
+        self.clear_all_context_button.setEnabled(any(general_states))
+
+        file_container_states = [
+            self.file_mix_copy_checkbox.isChecked(),
+            self.file_mix_move_checkbox.isChecked(),
+        ]
+        file_container_states.extend(
+            item.checkState() == Qt.CheckState.Checked
+            for items in (
+                self.container_context_checks,
+                self.container_extract_checks,
+                self.container_handler_checks,
+            )
+            for item in items.values()
+        )
+        if self.mix_new_menu_item is not None:
+            file_container_states.append(
+                self.mix_new_menu_item.checkState() == Qt.CheckState.Checked
+            )
+        self.select_all_associations_button.setEnabled(
+            not all(file_container_states)
+        )
+        self.clear_all_associations_button.setEnabled(any(file_container_states))
+
     def _set_extension_integrations(self, extension: str, enabled: bool) -> None:
         table = self.container_tables[extension]
         table.blockSignals(True)
         try:
             state = Qt.CheckState.Checked if enabled else Qt.CheckState.Unchecked
             self.container_context_checks[extension].setCheckState(state)
+            self.container_extract_checks[extension].setCheckState(state)
             self.container_handler_checks[extension].setCheckState(state)
+            if extension == ".mix" and self.mix_new_menu_item is not None:
+                self.mix_new_menu_item.setCheckState(state)
         finally:
             table.blockSignals(False)
         self._refresh_container_default_button(extension)
+        self._refresh_bulk_button_states()
 
-    def _set_all_container_integrations(self, enabled: bool) -> None:
+    def _set_all_file_container_integrations(self, enabled: bool) -> None:
+        self.file_mix_copy_checkbox.setChecked(enabled)
+        self.file_mix_move_checkbox.setChecked(enabled)
         for extension in self.container_tables:
             self._set_extension_integrations(extension, enabled)
+        self._refresh_bulk_button_states()
 
     def registrations(self) -> dict[str, object]:
         return {
             "directory_context_menu": self.directory_context_menu_checkbox.isChecked(),
-            "mix_new_menu": self.mix_new_menu_checkbox.isChecked(),
+            "mix_new_menu": (
+                self.mix_new_menu_item is not None
+                and self.mix_new_menu_item.checkState() == Qt.CheckState.Checked
+            ),
+            "file_context_mix_copy": self.file_mix_copy_checkbox.isChecked(),
+            "file_context_mix_move": self.file_mix_move_checkbox.isChecked(),
+            "context_menu_submenu": self.context_menu_submenu_checkbox.isChecked(),
             "container_file_context_menus": {
                 extension: item.checkState() == Qt.CheckState.Checked
                 for extension, item in self.container_context_checks.items()
+            },
+            "container_file_extract_context_menus": {
+                extension: item.checkState() == Qt.CheckState.Checked
+                for extension, item in self.container_extract_checks.items()
             },
             "container_file_associations": {
                 extension: item.checkState() == Qt.CheckState.Checked
@@ -328,6 +505,7 @@ class SystemIntegrationSettingsPage(QWidget):
         self._container_state.update(state)
         handler_states = state.get("container_file_associations", {})
         context_states = state.get("container_file_context_menus", {})
+        extract_states = state.get("container_file_extract_context_menus", {})
         if extension in self.container_handler_checks:
             self.container_handler_checks[extension].setCheckState(
                 Qt.CheckState.Checked
@@ -340,6 +518,12 @@ class SystemIntegrationSettingsPage(QWidget):
                 if context_states.get(extension, False)
                 else Qt.CheckState.Unchecked
             )
+        if extension in self.container_extract_checks:
+            self.container_extract_checks[extension].setCheckState(
+                Qt.CheckState.Checked
+                if extract_states.get(extension, False)
+                else Qt.CheckState.Unchecked
+            )
         self.container_default_statuses[extension].setText(
             self._container_default_status(extension, self._container_state)
         )
@@ -350,6 +534,7 @@ class SystemIntegrationSettingsPage(QWidget):
         for key in (
             "container_file_associations",
             "container_file_context_menus",
+            "container_file_extract_context_menus",
             "container_file_is_default",
         ):
             self._initial_state[key] = dict(state.get(key, {}))
@@ -368,21 +553,21 @@ class SystemIntegrationSettingsPage(QWidget):
                 APPLICATION_DISPLAY_NAME,
                 extension,
             )
-            color = "#1a7f37"
+            role = "success"
         elif result == "received":
             text = self.tr(
                 "Request received. If {0} files are not associated with this app, "
                 "change the default app in a {0} file's Properties."
             ).format(extension)
-            color = "#0969da"
+            role = "info"
         elif result == "error":
             text = self.tr("Could not open the {0} sample.").format(extension)
-            color = "#cf222e"
+            role = "error"
         elif result == "timeout":
             text = self.tr("No result received for {0}. You can try again.").format(
                 extension
             )
-            color = "#b45309"
+            role = "warning"
         else:
             text = self.tr(
                 "Request received. If {0} files are not associated with this app, "
@@ -390,14 +575,19 @@ class SystemIntegrationSettingsPage(QWidget):
             ).format(
                 extension
             )
-            color = "#0969da"
+            role = "info"
         status.setText(text)
         status.setToolTip(
             f"{text}\n{error or self.tr('Unknown error')}"
             if result == "error"
             else text
         )
-        status.setStyleSheet(f"color: {color}; font-weight: 600;")
+        set_semantic_status_style(
+            status,
+            role,
+            bold=True,
+            background_role=QPalette.ColorRole.Base,
+        )
         self._pending_probe_extensions.discard(extension)
         for suffix in self.container_default_buttons:
             self._refresh_container_default_button(suffix)
@@ -410,7 +600,12 @@ class SystemIntegrationSettingsPage(QWidget):
         text = self.tr("Waiting for the Windows result...")
         status.setText(text)
         status.setToolTip(text)
-        status.setStyleSheet("color: #0969da; font-weight: 600;")
+        set_semantic_status_style(
+            status,
+            "info",
+            bold=True,
+            background_role=QPalette.ColorRole.Base,
+        )
         for suffix in self.container_default_buttons:
             self._refresh_container_default_button(suffix)
 
@@ -538,15 +733,12 @@ class ContainerDefaultHandlerDialog(QDialog):
 
     @staticmethod
     def _set_status_style(label: QLabel, role: str) -> None:
-        colors = {
-            "neutral": "#8c959f",
-            "pending": "#0969da",
-            "info": "#0969da",
-            "success": "#1a7f37",
-            "warning": "#b45309",
-            "error": "#cf222e",
-        }
-        label.setStyleSheet(f"color: {colors[role]}; font-weight: 600;")
+        set_semantic_status_style(
+            label,
+            role,
+            bold=True,
+            background_role=QPalette.ColorRole.Base,
+        )
 
 
 # @arch mix-browser.container-association-probe-notice component | en: Reports whether Windows selected RA2AYRMB as the default for a container extension | zh: 报告 Windows 是否已将 RA2AYRMB 设为容器扩展名的默认程序

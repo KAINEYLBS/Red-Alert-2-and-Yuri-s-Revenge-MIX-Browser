@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import hashlib
 import json
 import os
@@ -38,6 +39,7 @@ from PySide6.QtGui import (
     QDesktopServices,
     QGuiApplication,
     QKeySequence,
+    QPalette,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -72,6 +74,7 @@ from PySide6.QtWidgets import (
 )
 
 from mix_browser import __version__
+from mix_browser.app.api import MixBrowserApplication
 from mix_browser.features.archive.domain import (
     MixArchiveIndex,
     MixArchiveParent,
@@ -132,7 +135,7 @@ from mix_browser.features.browser.file_type_support import (
     CONFIGURABLE_BROWSER_TYPE_FILTERS,
     DEFAULT_VISIBLE_BROWSER_TYPE_FILTERS,
     OTHER_FILE_TYPE_FILTER,
-    is_previewable_file_name,
+    is_previewable_file,
 )
 from mix_browser.features.browser.recursive_search import (
     ArchivePageLocation,
@@ -152,6 +155,9 @@ from mix_browser.features.browser.temporary_files_preferences import (
     TemporaryFilesSettingsPage,
 )
 from mix_browser.features.system_integration.api import SystemIntegrationApplication
+from mix_browser.features.system_integration.settings import (
+    SHOW_BASIC_OPERATION_DIALOG_ONLY_ON_ISSUES_KEY,
+)
 from mix_browser.features.system_integration.open_with_dialog import (
     cleanup_container_association_probe_result,
     consume_container_association_probe_result,
@@ -170,7 +176,6 @@ from mix_browser.features.browser.external_open import (
     prepare_search_hit_targets,
     reload_archive_indexes,
 )
-from mix_browser.features.browser.rounded_row_delegate import RoundedRowDelegate
 from mix_browser.features.browser.system_icons import system_icon_for_object
 from mix_browser.features.browser.table_model import MixEntryTableModel
 from mix_browser.shared.task_progress_dialog import (
@@ -187,18 +192,33 @@ from mix_browser.shared.application_settings import (
     user_data_directory,
 )
 from mix_browser.shared.file_operations import replace_path_with_staged_sibling
-from mix_browser.shared.interaction_help import InteractionHelpCatalog
+from mix_browser.shared.table_row_delegate import ApplicationTableRowDelegate
+from mix_browser.shared.interaction_help import (
+    InteractionHelpButton,
+    InteractionHelpCatalog,
+)
+from mix_browser.shared.mix_name_controls import add_mix_name_template_controls
 from mix_browser.shared.versioning import format_display_version
+from mix_browser.shared.window_placement import center_window_on_available_screen
 
 if TYPE_CHECKING:
     from mix_browser.features.browser.entry_preview import EntryPreviewPane
+    from mix_browser.features.browser.voxel_renderer import VoxelRendererResources
 
 
 # @arch mix-browser.entry-preview-factory utility | en: Creates the preview widget on the UI thread | zh: 在 UI 线程创建预览控件
-def _create_entry_preview(parent: QWidget) -> EntryPreviewPane:
+def _create_entry_preview(
+    parent: QWidget,
+    renderer_resources: VoxelRendererResources | None = None,
+    interaction_help: InteractionHelpCatalog | None = None,
+) -> EntryPreviewPane:
     from mix_browser.features.browser.entry_preview import EntryPreviewPane
 
-    return EntryPreviewPane(parent)
+    return EntryPreviewPane(
+        parent,
+        renderer_resources=renderer_resources,
+        interaction_help=interaction_help,
+    )
 
 
 def _remove_stale_clipboard_exports(
@@ -229,6 +249,8 @@ class MixArchivePage(QWidget):
         location_text: str | None = None,
         parent: QWidget | None = None,
         preview: EntryPreviewPane | None = None,
+        renderer_resources: VoxelRendererResources | None = None,
+        interaction_help: InteractionHelpCatalog | None = None,
     ) -> None:
         super().__init__(parent)
         self.archive = archive
@@ -238,14 +260,18 @@ class MixArchivePage(QWidget):
         self.location_text = location_text or str(archive.path)
         self._ancestor_buttons: dict[str, QToolButton] = {}
 
-        self.entry_table = EntryTable(MixEntryTableModel(archive.entries), self)
+        self.entry_table = EntryTable(
+            MixEntryTableModel(archive.entries),
+            self,
+            interaction_help=interaction_help,
+        )
         self.entry_table.filter_changed.connect(self.filter_state_changed.emit)
         self.table = self.entry_table.table
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.entry_table.context_menu_requested.connect(self.context_menu_requested.emit)
         self.entry_table.drag_requested.connect(self.drag_requested.emit)
         self.entry_table.drag_cancelled.connect(self.drag_cancelled.emit)
-        self._row_delegate = RoundedRowDelegate(self.table)
+        self._row_delegate = ApplicationTableRowDelegate(self.table)
         self.table.setItemDelegate(self._row_delegate)
         self.table.selectionModel().currentChanged.connect(self._on_current_entry_changed)
         self._preview_request_id: int | None = None
@@ -255,7 +281,15 @@ class MixArchivePage(QWidget):
         self._preview_line_endings = "Unknown"
         self._preview_pending = False
 
-        self.preview = preview if preview is not None else _create_entry_preview(self)
+        self.preview = (
+            preview
+            if preview is not None
+            else _create_entry_preview(
+                self,
+                renderer_resources,
+                interaction_help,
+            )
+        )
         self.content_splitter = QSplitter(Qt.Orientation.Horizontal, self)
         self.content_splitter.setChildrenCollapsible(False)
         self.content_splitter.addWidget(self.entry_table)
@@ -453,6 +487,8 @@ class DirectoryBrowserPage(QWidget):
         ancestors: tuple[tuple[str, str], ...] = (),
         parent: QWidget | None = None,
         preview: EntryPreviewPane | None = None,
+        renderer_resources: VoxelRendererResources | None = None,
+        interaction_help: InteractionHelpCatalog | None = None,
     ) -> None:
         super().__init__(parent)
         self.directory = directory
@@ -470,18 +506,30 @@ class DirectoryBrowserPage(QWidget):
         self._preview_line_endings = "Unknown"
         self._preview_pending = False
 
-        self.entry_table = EntryTable(DirectoryEntryTableModel(parent=self), self)
+        self.entry_table = EntryTable(
+            DirectoryEntryTableModel(parent=self),
+            self,
+            interaction_help=interaction_help,
+        )
         self.entry_table.filter_changed.connect(self.filter_state_changed.emit)
         self.table = self.entry_table.table
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.entry_table.context_menu_requested.connect(self.context_menu_requested.emit)
         self.entry_table.drag_requested.connect(self.drag_requested.emit)
         self.entry_table.drag_cancelled.connect(self.drag_cancelled.emit)
-        self._row_delegate = RoundedRowDelegate(self.table)
+        self._row_delegate = ApplicationTableRowDelegate(self.table)
         self.table.setItemDelegate(self._row_delegate)
         self.table.selectionModel().currentChanged.connect(self._on_current_entry_changed)
 
-        self.preview = preview if preview is not None else _create_entry_preview(self)
+        self.preview = (
+            preview
+            if preview is not None
+            else _create_entry_preview(
+                self,
+                renderer_resources,
+                interaction_help,
+            )
+        )
         self.content_splitter = QSplitter(Qt.Orientation.Horizontal, self)
         self.content_splitter.setChildrenCollapsible(False)
         self.content_splitter.addWidget(self.entry_table)
@@ -763,6 +811,9 @@ class _EditedEntriesResult:
     copied_names: tuple[str, ...]
     refreshed_archives: dict[str, MixArchiveIndex]
     refresh_error: str | None = None
+    added_names: tuple[str, ...] = ()
+    created_mix_action: str | None = None
+    created_mix_item_count: int = 0
 
 
 @dataclass
@@ -931,6 +982,56 @@ def _edit_mix_entries_and_refresh(
         tuple(str(name) for name in result["copied_names"]),
         refreshed,
         refresh_error,
+        tuple(str(name) for name in result.get("added_file_names", ())),
+    )
+
+
+# @arch mix-browser.create-nested-mix-and-refresh service | en: Creates a nested MIX from selected entries and refreshes affected open archive views | zh: 将选中条目打包为内嵌 MIX 并刷新相关打开的归档视图
+def _create_mix_from_archive_entries_and_refresh(
+    application: MixBrowserApplication,
+    loader: MixArchiveLoader,
+    root_path: Path,
+    parent_entry_ids: tuple[int, ...],
+    entry_ids: tuple[int, ...],
+    name: str,
+    move_entries: bool,
+    overwrite: bool,
+    expected_archive_signature: tuple[int, int],
+    reload_targets: tuple[tuple[str, tuple[int, ...]], ...],
+    progress: Callable[[int, int], None],
+    cancellation_requested: Callable[[], bool],
+) -> _EditedEntriesResult:
+    result = application.create_mix_from_archive_entries(
+        root_path,
+        name,
+        entry_ids,
+        parent_entry_ids=parent_entry_ids,
+        move_entries=move_entries,
+        overwrite=overwrite,
+        expected_archive_signature=expected_archive_signature,
+        progress=progress,
+        cancellation_requested=cancellation_requested,
+    )
+    metadata = root_path.stat()
+    signature = (metadata.st_size, metadata.st_mtime_ns)
+    try:
+        refreshed = reload_archive_indexes(loader, root_path, reload_targets)
+    except Exception as exc:
+        refreshed = {}
+        refresh_error = str(exc)
+    else:
+        refresh_error = None
+    return _EditedEntriesResult(
+        str(result["archive_path"]),
+        signature,
+        tuple(str(item) for item in result["removed_names"]),
+        (),
+        (),
+        refreshed,
+        refresh_error,
+        tuple(str(item) for item in result["added_names"]),
+        "move" if move_entries else "copy",
+        len(entry_ids),
     )
 
 
@@ -1100,41 +1201,6 @@ def _set_name_conflict_button_style(button: QPushButton, emphasized: bool) -> No
     )
 
 
-def _add_mix_name_template_controls(
-    layout: QVBoxLayout,
-    name_edit: QLineEdit,
-    *,
-    include_mix_suffix: bool,
-    quick_fill_label: str,
-    ra2_button_label: str,
-    yr_button_label: str,
-    priority_hint: str,
-) -> QLabel:
-    template_row = QHBoxLayout()
-    template_row.addWidget(QLabel(quick_fill_label))
-    for label, prefix in (
-        (ra2_button_label, "expand"),
-        (yr_button_label, "expandmd"),
-    ):
-        button = QPushButton(label)
-        button.setAutoDefault(False)
-
-        def apply_template(_checked: bool = False, *, value: str = prefix) -> None:
-            suffix = ".mix" if include_mix_suffix else ""
-            name_edit.setText(f"{value}30{suffix}")
-            name_edit.setCursorPosition(len(value) + 2)
-            name_edit.setFocus()
-
-        button.clicked.connect(apply_template)
-        template_row.addWidget(button)
-    template_row.addStretch(1)
-    layout.addLayout(template_row)
-
-    hint_label = QLabel(priority_hint)
-    hint_label.setWordWrap(True)
-    return hint_label
-
-
 # @arch mix-browser.name-entry-dialog component | en: Collects a name and confirms replacement when it conflicts | zh: 收集名称并在冲突时确认是否替换
 class NameEntryDialog(QDialog):
     def __init__(
@@ -1162,7 +1228,7 @@ class NameEntryDialog(QDialog):
         layout.addWidget(QLabel(prompt, self))
         self.name_edit = QLineEdit(initial_name, self)
         self.name_edit.selectAll()
-        priority_hint = _add_mix_name_template_controls(
+        priority_hint = add_mix_name_template_controls(
             layout,
             self.name_edit,
             include_mix_suffix=Path(initial_name).suffix.casefold() in {".mix", ".mmx", ".yro"},
@@ -1339,7 +1405,7 @@ class NewFileDialog(QDialog):
         layout.addWidget(QLabel(self.tr("File name:"), self))
         self.name_edit = QLineEdit(self)
         self.name_edit.textChanged.connect(self._on_name_changed)
-        priority_hint = _add_mix_name_template_controls(
+        priority_hint = add_mix_name_template_controls(
             layout,
             self.name_edit,
             include_mix_suffix=True,
@@ -2408,6 +2474,7 @@ class PreferencesDialog(QDialog):
         palette_theater: str,
         palette_library_rules: tuple[PaletteLibraryRule, ...],
         system_integration_state: dict[str, object],
+        show_basic_operation_dialog_only_on_issues: bool,
         ui_language: str,
         parent: QWidget | None = None,
     ) -> None:
@@ -2458,7 +2525,8 @@ class PreferencesDialog(QDialog):
         playback_group_layout = QVBoxLayout(playback_group)
         self.auto_play_checkboxes: dict[str, QCheckBox] = {}
         for key, label in (
-            ("animations", self.tr("Auto-play SHP animations")),
+            ("shp_animations", self.tr("Auto-play SHP animations")),
+            ("hva_animations", self.tr("Auto-play HVA animations")),
             ("audio", self.tr("Auto-play audio")),
             ("video", self.tr("Auto-play video")),
         ):
@@ -2488,7 +2556,10 @@ class PreferencesDialog(QDialog):
 
         self.system_integration = SystemIntegrationSettingsPage(
             system_integration_state,
-            self,
+            show_operations_only_on_issues=(
+                show_basic_operation_dialog_only_on_issues
+            ),
+            parent=self,
         )
         self.tabs.addTab(self.system_integration, self.tr("System Integration"))
 
@@ -2510,49 +2581,11 @@ class PreferencesDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(self.tabs)
         layout.addWidget(buttons)
-        self._position_on_available_screen()
-
-    def _position_on_available_screen(self) -> None:
-        self.ensurePolished()
-        self.winId()
-
-        parent = self.parentWidget()
-        parent_center = parent.frameGeometry().center() if parent is not None else None
-        screen = (
-            QGuiApplication.screenAt(parent_center)
-            if parent_center is not None
-            else None
+        center_window_on_available_screen(
+            self,
+            self.parentWidget(),
+            constrain_size=True,
         )
-        screen = screen or QGuiApplication.primaryScreen()
-        if screen is None:
-            return
-
-        available = screen.availableGeometry().adjusted(8, 8, -8, -8)
-        window_handle = self.windowHandle()
-        margins = window_handle.frameMargins() if window_handle is not None else None
-        frame_width = margins.left() + margins.right() if margins is not None else 0
-        frame_height = margins.top() + margins.bottom() if margins is not None else 0
-        max_width = max(1, available.width() - frame_width)
-        max_height = max(1, available.height() - frame_height)
-        self.setMinimumSize(min(760, max_width), min(520, max_height))
-        self.setMaximumSize(max_width, max_height)
-        self.resize(min(self.width(), max_width), min(self.height(), max_height))
-
-        target = (
-            parent_center
-            if parent_center is not None and available.contains(parent_center)
-            else available.center()
-        )
-        frame = self.frameGeometry()
-        x = min(
-            max(target.x() - frame.width() // 2, available.left()),
-            available.right() - frame.width() + 1,
-        )
-        y = min(
-            max(target.y() - frame.height() // 2, available.top()),
-            available.bottom() - frame.height() + 1,
-        )
-        self.move(x, y)
 
     def accept(self) -> None:
         raw_directory = self.palette_sources.directory_edit.text().strip()
@@ -2609,30 +2642,116 @@ class MixBrowserWindow(QMainWindow):
         startup_executor: Executor,
         interaction_help: InteractionHelpCatalog,
         progress_controller: TaskProgressController,
+        voxel_renderer_resources: VoxelRendererResources,
     ) -> None:
         super().__init__()
         self.setWindowTitle(APPLICATION_DISPLAY_NAME)
         self.setAcceptDrops(True)
         self._interaction_help = interaction_help
+        self._voxel_renderer_resources = voxel_renderer_resources
         interaction_help.register_gesture(
             "mix-browser.drop-actions",
             self.tr("Drop local files or folders"),
             self.tr("Open dropped MIX archives or folders, or add dropped files to the active tab."),
+            group=self.tr("Files and tabs"),
         )
         interaction_help.register_gesture(
             "mix-browser.drag-copy-items",
             self.tr("Drag selected rows"),
             self.tr("Copy selected files or MIX entries to another tab or an external application."),
+            group=self.tr("Files and tabs"),
         )
         interaction_help.register_gesture(
             "mix-browser.entry-context-menu",
             self.tr("Right-click a list item or empty list area"),
             self.tr("Open actions for selected filesystem items, MIX entries, or the list background."),
+            group=self.tr("Files and tabs"),
+        )
+        interaction_help.register_gesture(
+            "mix-browser.open-list-item",
+            self.tr("Press Enter or double-click a table row"),
+            self.tr("Open folders and MIX archives here; open other files with the system default application."),
+            group=self.tr("Files and tabs"),
+        )
+        interaction_help.register_gesture(
+            "mix-browser.tab-context-menu",
+            self.tr("Right-click a tab"),
+            self.tr("Open tab actions, including opening its location in File Explorer and closing tabs."),
+            group=self.tr("Files and tabs"),
+        )
+        interaction_help.register_gesture(
+            "mix-browser.reorder-tabs",
+            self.tr("Drag a tab"),
+            self.tr("Change the order of open tabs."),
+            group=self.tr("Files and tabs"),
+        )
+        interaction_help.register_gesture(
+            "mix-browser.multi-row-selection",
+            self.tr("Ctrl-click or Shift-click rows"),
+            self.tr("Add or remove individual rows with Ctrl, or extend a contiguous selection with Shift."),
+            group=self.tr("Files and tabs"),
         )
         interaction_help.register_gesture(
             "mix-browser.add-user-palette-by-drop",
             self.tr("Drag .pal files into the user palette library"),
-            self.tr("Drop local .pal files to copy them into the library with a blank regex rule."),
+            self.tr("In Preferences > Palette Sources, drop local .pal files into the library to copy them with a blank regular-expression rule."),
+            group=self.tr("Palette library"),
+        )
+        interaction_help.register_gesture(
+            "mix-browser.preview-image-zoom",
+            self.tr("Use the mouse wheel over an image or model"),
+            self.tr("Zoom the preview around the pointer."),
+            group=self.tr("Image and model previews"),
+        )
+        interaction_help.register_gesture(
+            "mix-browser.preview-image-pan",
+            self.tr("Drag an image with the left mouse button"),
+            self.tr("Move a zoomed image within the preview area."),
+            group=self.tr("Image and model previews"),
+        )
+        interaction_help.register_gesture(
+            "mix-browser.preview-model-rotate",
+            self.tr("Drag a voxel model with the left mouse button"),
+            self.tr("Rotate a VXL or HVA model."),
+            group=self.tr("Image and model previews"),
+        )
+        interaction_help.register_gesture(
+            "mix-browser.preview-model-pan",
+            self.tr("Drag a voxel model with the middle or right mouse button"),
+            self.tr("Move a VXL or HVA model within the preview area."),
+            group=self.tr("Image and model previews"),
+        )
+        interaction_help.register_gesture(
+            "mix-browser.table-primary-sort",
+            self.tr("Click a column heading"),
+            self.tr("Sort by that column. Click the same heading again to reverse the order."),
+            group=self.tr("Table sorting"),
+            include_in_global_guide=False,
+        )
+        interaction_help.register_gesture(
+            "mix-browser.table-secondary-sort",
+            self.tr("Shift-click a column heading"),
+            self.tr(
+                "Shift-click another heading to add or replace the secondary sort. "
+                "Shift-click an active heading to reverse that key."
+            ),
+            group=self.tr("Table sorting"),
+            include_in_global_guide=False,
+        )
+        interaction_help.register_gesture(
+            "mix-browser.table-clear-sort",
+            self.tr("Click the clear-sort button"),
+            self.tr("Remove active sorting and restore the original row order."),
+            group=self.tr("Table sorting"),
+            include_in_global_guide=False,
+        )
+        interaction_help.register_gesture(
+            "mix-browser.table-sorting-help-location",
+            self.tr("Table sorting options"),
+            self.tr(
+                "For sorting and clearing details, use the ? button in the corresponding table header."
+            ),
+            group=self.tr("Tables"),
         )
         self._task_executor = task_executor
         self._startup_executor = startup_executor
@@ -2791,14 +2910,58 @@ class MixBrowserWindow(QMainWindow):
             else "auto"
         )
         self._auto_play_preferences = {
-            "animations": self._settings.value(
-                "preview/autoPlay/animations",
+            "shp_animations": self._settings.value(
+                "preview/autoPlay/shp_animations",
+                self._settings.value(
+                    "preview/autoPlay/animations",
+                    False,
+                    type=bool,
+                ),
+                type=bool,
+            ),
+            "hva_animations": self._settings.value(
+                "preview/autoPlay/hva_animations",
                 False,
                 type=bool,
             ),
             "audio": self._settings.value("preview/autoPlay/audio", False, type=bool),
             "video": self._settings.value("preview/autoPlay/video", False, type=bool),
         }
+        default_background_mode = (
+            "dark"
+            if self.palette().color(QPalette.ColorRole.Base).lightness() < 128
+            else "light"
+        )
+        self._preview_background_mode = self._settings.value(
+            "preview/background/mode",
+            default_background_mode,
+            type=str,
+        )
+        if self._preview_background_mode not in {
+            "checkerboard",
+            "dark",
+            "light",
+            "green",
+            "custom",
+        }:
+            self._preview_background_mode = "checkerboard"
+        custom_background = QColor(
+            self._settings.value(
+                "preview/background/customColor",
+                "#00a000",
+                type=str,
+            )
+        )
+        self._preview_background_color = (
+            custom_background.name(QColor.NameFormat.HexRgb)
+            if custom_background.isValid()
+            else "#00a000"
+        )
+        self._preview_asset_boundaries_visible = self._settings.value(
+            "preview/showAssetBoundaries",
+            False,
+            type=bool,
+        )
         self._archive_loader = MixArchiveLoader(
             xcc_names_enabled=self._xcc_names_enabled,
             community_names_enabled=self._community_names_enabled,
@@ -2807,6 +2970,10 @@ class MixBrowserWindow(QMainWindow):
         self._archive_load_session = self._archive_loader.create_session()
         self._archive_application = MixArchiveApplication(self._archive_loader)
         self._browser_application = MixBrowserFeatureApplication(self._archive_loader)
+        self._application_api = MixBrowserApplication(
+            archive_application=self._archive_application,
+            browser_application=self._browser_application,
+        )
         self._restore_active_path_key: str | None = None
         self._open_signals = _ArchiveOpenSignals(self)
         self._open_signals.completed.connect(self._on_archive_opened)
@@ -2904,8 +3071,20 @@ class MixBrowserWindow(QMainWindow):
         self.container_layout.addWidget(self.empty_state)
         self.container_layout.addWidget(self.tabs)
         self.setCentralWidget(self.container)
-        # Prepare the preview controls before the first browser page is created.
-        self._prepared_entry_preview = _create_entry_preview(self.tabs)
+        # Create VLC's native child while hidden to avoid rebuilding the visible window later.
+        self._prepared_entry_preview = _create_entry_preview(
+            self.tabs,
+            self._voxel_renderer_resources,
+            self._interaction_help,
+        )
+        self._prepared_entry_preview.set_preview_background(
+            self._preview_background_mode,
+            self._preview_background_color,
+        )
+        self._prepared_entry_preview.set_asset_boundaries_visible(
+            self._preview_asset_boundaries_visible
+        )
+        self._prepared_entry_preview.prepare_video_surface()
         self._create_split_status_bar()
         self._sync_empty_state()
         self._register_drop_targets(self)
@@ -2914,6 +3093,9 @@ class MixBrowserWindow(QMainWindow):
         preview = self._prepared_entry_preview
         self._prepared_entry_preview = None
         return preview
+
+    def prewarm_voxel_renderer(self) -> None:
+        self._voxel_renderer_resources.initialize()
 
     def start_deferred_startup_work(self) -> None:
         if self._deferred_startup_work_started:
@@ -2955,6 +3137,7 @@ class MixBrowserWindow(QMainWindow):
             text=self.tr("Save MIX..."),
             shortcut=QKeySequence.StandardKey.Save,
             description=self.tr("Choose a file path for a newly created MIX archive."),
+            group=self.tr("Keyboard shortcuts"),
         )
         self._save_mix_action.triggered.connect(self._save_mix)
         self.addAction(self._save_mix_action)
@@ -2964,6 +3147,7 @@ class MixBrowserWindow(QMainWindow):
             text=self.tr("Save MIX As..."),
             shortcut=QKeySequence.StandardKey.SaveAs,
             description=self.tr("Save the open MIX archive to another file path."),
+            group=self.tr("Keyboard shortcuts"),
         )
         self._save_mix_as_action.triggered.connect(self._save_mix_as)
         self.addAction(self._save_mix_as_action)
@@ -2987,6 +3171,7 @@ class MixBrowserWindow(QMainWindow):
             text=self.tr("Copy"),
             shortcut=QKeySequence.StandardKey.Copy,
             description=self.tr("Copy selected browser items or search results to the system clipboard."),
+            group=self.tr("Keyboard shortcuts"),
         )
         self._copy_action.triggered.connect(self._copy_selected_entries)
         self._paste_action = self._interaction_help.create_action(
@@ -2995,6 +3180,7 @@ class MixBrowserWindow(QMainWindow):
             text=self.tr("Paste"),
             shortcut=QKeySequence.StandardKey.Paste,
             description=self.tr("Paste files from the system clipboard or copied MIX entries into the active location."),
+            group=self.tr("Keyboard shortcuts"),
         )
         self._paste_action.triggered.connect(self._paste_selected_entries)
         self._rename_action = self._interaction_help.create_action(
@@ -3003,6 +3189,7 @@ class MixBrowserWindow(QMainWindow):
             text=self.tr("Rename"),
             shortcut="F2",
             description=self.tr("Rename the selected filesystem item or MIX entry."),
+            group=self.tr("Keyboard shortcuts"),
         )
         self._rename_action.triggered.connect(self._rename_selected_entry)
         self._delete_action = self._interaction_help.create_action(
@@ -3011,6 +3198,7 @@ class MixBrowserWindow(QMainWindow):
             text=self.tr("Delete"),
             shortcut=QKeySequence.StandardKey.Delete,
             description=self.tr("Delete the selected filesystem items or MIX entries."),
+            group=self.tr("Keyboard shortcuts"),
         )
         self._delete_action.triggered.connect(self._delete_selected_entries)
         for action in (
@@ -3028,6 +3216,7 @@ class MixBrowserWindow(QMainWindow):
             text=self.tr("Search from Root..."),
             shortcut=QKeySequence.StandardKey.Find,
             description=self.tr("Search recursively from the current root."),
+            group=self.tr("Keyboard shortcuts"),
         )
         self._search_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
         self.addAction(self._search_action)
@@ -3048,6 +3237,13 @@ class MixBrowserWindow(QMainWindow):
             self,
         )
         self._version_updates_action.triggered.connect(self._open_version_updates)
+        self._interaction_guide_action = QAction(
+            self.tr("Interaction Guide..."),
+            self,
+        )
+        self._interaction_guide_action.triggered.connect(
+            self._show_interaction_guide
+        )
         self._palette_naming_guide_action = QAction(
             self.tr("Asset Filename Guide for INI Palette References..."),
             self,
@@ -3085,13 +3281,34 @@ class MixBrowserWindow(QMainWindow):
         edit_menu.addAction(self._search_action)
         edit_menu.addSeparator()
         edit_menu.addAction(self._preferences_action)
+        help_menu.addAction(self._interaction_guide_action)
+        help_menu.addSeparator()
         help_menu.addAction(self._version_updates_action)
         help_menu.addSeparator()
         help_menu.addAction(self._preview_support_action)
         help_menu.addAction(self._palette_naming_guide_action)
         help_menu.addSeparator()
         help_menu.addAction(self._about_action)
+        self._interaction_guide_corner = QWidget(self.menuBar())
+        self._interaction_guide_corner.setFixedSize(30, 22)
+        corner_layout = QHBoxLayout(self._interaction_guide_corner)
+        corner_layout.setContentsMargins(0, 0, 8, 0)
+        corner_layout.setSpacing(0)
+        self._interaction_guide_button = InteractionHelpButton(
+            self._interaction_help,
+            self.tr("Interaction guide"),
+            self._interaction_guide_corner,
+            align_popup_right=True,
+        )
+        corner_layout.addWidget(self._interaction_guide_button)
+        self.menuBar().setCornerWidget(
+            self._interaction_guide_corner,
+            Qt.Corner.TopRightCorner,
+        )
         self._sync_workspace_actions()
+
+    def _show_interaction_guide(self) -> None:
+        self._interaction_guide_button.show_help()
 
     def _open_about(self) -> None:
         AboutDialog(self).exec()
@@ -3238,6 +3455,11 @@ class MixBrowserWindow(QMainWindow):
             self._palette_theater,
             self._palette_library_rules,
             system_state,
+            self._settings.value(
+                SHOW_BASIC_OPERATION_DIALOG_ONLY_ON_ISSUES_KEY,
+                False,
+                type=bool,
+            ),
             self._ui_language,
             self,
         )
@@ -3613,6 +3835,11 @@ class MixBrowserWindow(QMainWindow):
             self._ui_language = ui_language
             self._settings.setValue("ui/language", ui_language)
 
+        self._settings.setValue(
+            SHOW_BASIC_OPERATION_DIALOG_ONLY_ON_ISSUES_KEY,
+            dialog.system_integration.operation_dialogs_only_on_issues_checkbox.isChecked(),
+        )
+
         if palette_page.has_pending_user_palette_deletions:
             self._settings.sync()
             if self._settings.status() != QSettings.Status.NoError:
@@ -3813,6 +4040,37 @@ class MixBrowserWindow(QMainWindow):
         self._settings.setValue(f"preview/autoPlay/{preference}", enabled)
         for page in self._pages_by_path.values():
             self._apply_auto_play_preferences(page)
+
+    def _set_preview_background_preference(self, mode: str, custom_color: str) -> None:
+        if mode not in {"checkerboard", "dark", "light", "green", "custom"}:
+            return
+        color = QColor(custom_color)
+        if not color.isValid():
+            return
+        self._preview_background_mode = mode
+        self._preview_background_color = color.name(QColor.NameFormat.HexRgb)
+        self._settings.setValue("preview/background/mode", mode)
+        self._settings.setValue(
+            "preview/background/customColor",
+            self._preview_background_color,
+        )
+        for page in self._pages_by_path.values():
+            self._apply_preview_background(page)
+
+    def _set_preview_asset_boundaries_visible(self, visible: bool) -> None:
+        self._preview_asset_boundaries_visible = bool(visible)
+        self._settings.setValue(
+            "preview/showAssetBoundaries",
+            self._preview_asset_boundaries_visible,
+        )
+        if self._prepared_entry_preview is not None:
+            self._prepared_entry_preview.set_asset_boundaries_visible(
+                self._preview_asset_boundaries_visible
+            )
+        for page in self._pages_by_path.values():
+            page.preview.set_asset_boundaries_visible(
+                self._preview_asset_boundaries_visible
+            )
 
     def _sync_workspace_actions(self, *_args) -> None:
         if not hasattr(self, "_add_files_action"):
@@ -4048,8 +4306,34 @@ class MixBrowserWindow(QMainWindow):
                         target_index,
                     )
                 )
-                menu.addSeparator()
 
+        explorer_action = menu.addAction(self.tr("Open in File Explorer"))
+        directory: Path | None = None
+        selected_paths: tuple[Path, ...] = ()
+        disabled_reason = self.tr(
+            "Only filesystem items have a containing folder in File Explorer."
+        )
+        if isinstance(page, DirectoryBrowserPage):
+            if not selected:
+                directory = page.directory
+            elif all(isinstance(entry, DirectoryEntry) for entry in selected):
+                containing_folders = {entry.path.parent for entry in selected}
+                if len(containing_folders) == 1:
+                    directory = containing_folders.pop()
+                    selected_paths = tuple(entry.path for entry in selected)
+        directory_available = directory is not None and directory.is_dir()
+        explorer_action.setEnabled(directory_available)
+        if not explorer_action.isEnabled():
+            explorer_action.setToolTip(disabled_reason)
+        elif directory is not None:
+            explorer_action.triggered.connect(
+                lambda _checked=False, path=directory, targets=selected_paths: self._open_directory_in_file_explorer(
+                    path, targets
+                )
+            )
+        menu.addSeparator()
+
+        if selected:
             menu.addAction(self._copy_action)
             menu.addAction(self._paste_action)
         if selected:
@@ -4063,21 +4347,452 @@ class MixBrowserWindow(QMainWindow):
         menu.addAction(self._new_file_action)
         if isinstance(page, MixArchivePage):
             menu.addAction(self._add_files_action)
+            selected_mix_entries = tuple(
+                entry for entry in selected if isinstance(entry, MixEntry)
+            )
+            can_pack_selected_entries = bool(selected_mix_entries) and len(selected_mix_entries) == len(selected)
+            try:
+                reserved_database_id = mix_file_ids_for_archive(
+                    page.archive,
+                    (LOCAL_MIX_DATABASE_NAME,),
+                )[0]
+            except (MixFormatError, OSError, ValueError):
+                can_pack_selected_entries = False
+            else:
+                can_pack_selected_entries = can_pack_selected_entries and all(
+                    entry.file_id != reserved_database_id
+                    for entry in selected_mix_entries
+                )
+            move_archive_action = menu.addAction(
+                self.tr("Create MIX here and move selected items...")
+            )
+            move_archive_action.setEnabled(can_pack_selected_entries)
+            move_archive_action.triggered.connect(
+                lambda _checked=False, target=page, entries=selected_mix_entries: self._create_mix_from_selected_mix_entries(
+                    target,
+                    entries,
+                    move_entries=True,
+                )
+            )
+            copy_archive_action = menu.addAction(
+                self.tr("Create MIX here and copy selected items...")
+            )
+            copy_archive_action.setEnabled(can_pack_selected_entries)
+            copy_archive_action.triggered.connect(
+                lambda _checked=False, target=page, entries=selected_mix_entries: self._create_mix_from_selected_mix_entries(
+                    target,
+                    entries,
+                    move_entries=False,
+                )
+            )
+            selected_containers = tuple(
+                entry
+                for entry in selected_mix_entries
+                if self._entry_container_type(entry) is not None
+            )
+            container_kind = self._container_kind_label(selected_containers)
+            nested_folder_names = tuple(
+                Path(entry.name or f"Unknown-{entry.file_id:08X}.mix").stem
+                for entry in selected_containers
+            )
+            nested_destination = page.archive.path.parent.resolve()
+            can_extract_nested_containers = (
+                bool(selected_containers)
+                and len(selected_containers) == len(selected)
+                and len({name.casefold() for name in nested_folder_names}) == len(nested_folder_names)
+                and all(
+                    is_valid_leaf_name(name)
+                    and not os.path.lexists(nested_destination / name)
+                    for name in nested_folder_names
+                )
+            )
+            extract_action = menu.addAction(
+                self.tr("Extract selected {0} into same-name folder(s) beside the outer archive").format(
+                    container_kind
+                )
+            )
+            extract_action.setEnabled(can_extract_nested_containers)
+            extract_action.triggered.connect(
+                lambda _checked=False, target=page, entries=selected_containers, kind=container_kind: self._extract_selected_nested_containers(
+                    target,
+                    entries,
+                    kind,
+                )
+            )
         elif isinstance(page, DirectoryBrowserPage):
             menu.addAction(self._new_folder_action)
             menu.addAction(self._add_files_action)
+            selected_files = tuple(
+                entry.path
+                for entry in selected
+                if isinstance(entry, DirectoryEntry) and not entry.is_directory
+            )
+            can_archive_selected_files = bool(selected_files) and len(selected_files) == len(selected)
+            move_archive_action = menu.addAction(
+                self.tr("Create MIX here and move selected items...")
+            )
+            move_archive_action.setEnabled(can_archive_selected_files)
+            move_archive_action.triggered.connect(
+                lambda _checked=False, target=page, paths=selected_files: self._create_mix_from_selected_files(
+                    target,
+                    paths,
+                    move_sources=True,
+                )
+            )
+            archive_action = menu.addAction(
+                self.tr("Create MIX here and copy selected items...")
+            )
+            archive_action.setEnabled(can_archive_selected_files)
+            archive_action.triggered.connect(
+                lambda _checked=False, target=page, paths=selected_files: self._create_mix_from_selected_files(
+                    target,
+                    paths,
+                    move_sources=False,
+                )
+            )
+            selected_archive_entries = tuple(
+                entry
+                for entry in selected
+                if isinstance(entry, DirectoryEntry)
+                and not entry.is_directory
+                and self._path_is_mix_archive(entry.path)
+            )
+            selected_archives = tuple(entry.path for entry in selected_archive_entries)
+            container_kind = self._container_kind_label(selected_archive_entries)
+            folder_names = tuple(path.stem for path in selected_archives)
+            can_extract_archives = (
+                bool(selected_archives)
+                and len(selected_archives) == len(selected)
+                and len({name.casefold() for name in folder_names}) == len(folder_names)
+                and all(
+                    is_valid_leaf_name(name)
+                    and not os.path.lexists(page.directory / name)
+                    for name in folder_names
+                )
+            )
+            extract_action = menu.addAction(
+                self.tr("Extract selected {0} into same-name folder(s) here").format(
+                    container_kind
+                )
+            )
+            extract_action.setEnabled(can_extract_archives)
+            extract_action.triggered.connect(
+                lambda _checked=False, target=page, paths=selected_archives, kind=container_kind: self._extract_mix_archives_to_folders(
+                    target,
+                    paths,
+                    kind,
+                )
+            )
         menu.addSeparator()
         menu.addAction(self._search_action)
         menu.exec(page.table.viewport().mapToGlobal(position))
 
+    # @arch mix-browser.create-mix-from-selected-files handler | en: Creates a MIX from selected files and either moves or retains the originals | zh: 用选中文件创建 MIX，并按操作选择移动或保留源文件
+    def _create_mix_from_selected_files(
+        self,
+        page: DirectoryBrowserPage,
+        source_paths: tuple[Path, ...],
+        *,
+        move_sources: bool,
+    ) -> None:
+        if not source_paths:
+            return
+
+        def name_state(raw_name: str) -> str:
+            name = raw_name.strip()
+            if not name:
+                return "empty"
+            suffix = Path(name).suffix.casefold()
+            if suffix and suffix != ".mix":
+                return "invalid"
+            if not suffix:
+                name += ".mix"
+            if not is_valid_leaf_name(name):
+                return "invalid"
+            destination = page.directory / name
+            try:
+                destination_key = os.path.normcase(str(destination.resolve(strict=False)))
+                source_keys = {
+                    os.path.normcase(str(path.resolve(strict=False)))
+                    for path in source_paths
+                }
+            except (OSError, RuntimeError):
+                return "invalid"
+            if destination_key in source_keys:
+                return "invalid"
+            if os.path.lexists(destination) and (
+                destination.is_symlink() or not destination.is_file()
+            ):
+                return "invalid"
+            return self._filesystem_name_state(page.directory, name)
+
+        dialog = NameEntryDialog(
+            self.tr("Create MIX from Selected Items"),
+            self.tr("New MIX name:"),
+            "New Archive.mix",
+            name_state,
+            self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        name = dialog.name_edit.text().strip()
+        if not Path(name).suffix:
+            name += ".mix"
+        destination = page.directory / name
+        task_id, task = self._start_progress_task(
+            "create_mix",
+            name,
+            (
+                self.tr("Creating {0} and moving {1} selected file(s)...")
+                if move_sources
+                else self.tr("Creating {0} and copying {1} selected file(s)...")
+            ).format(name, len(source_paths)),
+        )
+        task.page_key = page.path_key
+        task.future = self._task_executor.submit(
+            self._application_api.create_mix_from_files,
+            destination,
+            source_paths,
+            move_sources=move_sources,
+            overwrite=dialog.overwrite_confirmed,
+            cancellation_requested=task.cancellation.is_cancelled,
+        )
+        task.future.add_done_callback(
+            lambda completed, pending_id=task_id: self._forward_progress_task(pending_id, completed)
+        )
+
+    def _finish_create_mix_from_files_task(
+        self,
+        task: _ExternalProgressTask,
+        result: object,
+        error: str,
+    ) -> None:
+        if error == "cancelled":
+            self.statusBar().showMessage(self.tr("MIX creation cancelled."), 6000)
+            return
+        if error or not isinstance(result, dict):
+            detail = str(result) if result else self.tr("The MIX archive could not be created.")
+            self.statusBar().showMessage(
+                self.tr("Could not create MIX archive: {0}").format(detail),
+                9000,
+            )
+            return
+
+        archive_path = Path(str(result["archive_path"]))
+        removed_paths = tuple(Path(path) for path in result.get("removed_source_paths", ()))
+        self._close_pages_for_filesystem_paths((archive_path, *removed_paths))
+        parent = archive_path.parent.resolve()
+        for open_page in tuple(self._pages_by_path.values()):
+            if (
+                isinstance(open_page, DirectoryBrowserPage)
+                and open_page.directory.resolve() == parent
+            ):
+                self._refresh_directory_page(open_page)
+        if result.get("source_move_complete"):
+            message = self.tr("Created MIX archive {0} and moved {1} file(s).").format(
+                archive_path.name,
+                result.get("entry_count", 0),
+            )
+        elif result.get("source_move_cancelled"):
+            message = self.tr(
+                "Created MIX archive {0}; source removal was cancelled and {1} file(s) remain."
+            ).format(archive_path.name, len(result.get("remaining_source_paths", ())))
+        elif result.get("source_move_failures"):
+            failures = "; ".join(str(item) for item in result.get("source_move_failures", ()))
+            message = self.tr(
+                "Created MIX archive {0}, but source removal was incomplete: {1}"
+            ).format(archive_path.name, failures)
+        elif result.get("source_move_requested"):
+            message = self.tr("Created MIX archive {0}; source files remain.").format(archive_path.name)
+        else:
+            message = self.tr("Created MIX archive {0} with {1} copied file(s).").format(
+                archive_path.name,
+                result.get("entry_count", 0),
+            )
+        self.statusBar().showMessage(message, 9000 if result.get("source_move_requested") else 8000)
+
+    # @arch mix-browser.create-mix-from-selected-entries handler | en: Creates a nested MIX from selected archive entries and optionally removes the originals | zh: 将所选归档条目打包为内嵌 MIX 并可选择移除原条目
+    def _create_mix_from_selected_mix_entries(
+        self,
+        page: MixArchivePage,
+        entries: tuple[MixEntry, ...],
+        *,
+        move_entries: bool,
+    ) -> None:
+        if not entries:
+            return
+        entry_ids = tuple(entry.file_id for entry in entries)
+
+        def name_state(raw_name: str) -> str:
+            name = raw_name.strip()
+            if not name:
+                return "empty"
+            suffix = Path(name).suffix.casefold()
+            if suffix and suffix != ".mix":
+                return "invalid"
+            if not suffix:
+                name += ".mix"
+            state = self._mix_entry_name_state(page, name)
+            if state == "conflict" and move_entries:
+                try:
+                    candidate_id = mix_file_ids_for_archive(page.archive, (name,))[0]
+                except (MixFormatError, OSError, ValueError):
+                    return "invalid"
+                if candidate_id in entry_ids:
+                    return "available"
+            return state
+
+        dialog = NameEntryDialog(
+            self.tr("Create MIX from Selected Items"),
+            self.tr("New MIX name:"),
+            "New Archive.mix",
+            name_state,
+            self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        name = dialog.name_edit.text().strip()
+        if Path(name).suffix.casefold() != ".mix":
+            name += ".mix"
+
+        reserved_id = mix_file_ids_for_archive(page.archive, (LOCAL_MIX_DATABASE_NAME,))[0]
+        if any(entry.file_id == reserved_id for entry in entries):
+            return
+        parent_ids = tuple(parent.entry_id for parent in page.archive.parents)
+        close_prefixes = tuple(
+            f"{page.path_key}!{entry.file_id:08x}"
+            for entry in entries
+            if move_entries and self._entry_container_type(entry) is not None
+        )
+        task_id, task = self._start_progress_task(
+            "create_nested_mix",
+            name,
+            (
+                self.tr("Creating nested MIX {0} and moving {1} selected item(s)...")
+                if move_entries
+                else self.tr("Creating nested MIX {0} and copying {1} selected item(s)...")
+            ).format(name, len(entries)),
+        )
+        task.page_key = page.path_key
+        task.target_parent_entry_ids = parent_ids
+        task.affected_entry_ids = entry_ids if move_entries else ()
+        task.close_page_prefixes = close_prefixes
+        reload_targets = self._collect_archive_reload_targets(
+            page.archive.path.resolve(),
+            close_prefixes,
+        )
+        progress = lambda completed, total: self._external_open_signals.progress.emit(
+            task_id,
+            completed,
+            total,
+        )
+        task.future = self._task_executor.submit(
+            _create_mix_from_archive_entries_and_refresh,
+            self._application_api,
+            self._archive_loader,
+            page.archive.path.resolve(),
+            parent_ids,
+            entry_ids,
+            name,
+            move_entries,
+            dialog.overwrite_confirmed,
+            page.archive.file_signature,
+            reload_targets,
+            progress,
+            task.cancellation.is_cancelled,
+        )
+        task.future.add_done_callback(
+            lambda completed, pending_id=task_id: self._forward_progress_task(pending_id, completed)
+        )
+
+    # @arch mix-browser.extract-selected-nested-containers handler | en: Extracts selected nested containers into same-name folders beside their physical archive | zh: 将选中的内嵌容器解包到物理归档旁的同名文件夹
+    def _extract_selected_nested_containers(
+        self,
+        page: MixArchivePage,
+        entries: tuple[MixEntry, ...],
+        container_kind: str,
+    ) -> None:
+        if not entries:
+            return
+        destination = page.archive.path.parent.resolve()
+        folder_names = tuple(
+            Path(entry.name or f"Unknown-{entry.file_id:08X}.mix").stem
+            for entry in entries
+        )
+        if len({name.casefold() for name in folder_names}) != len(folder_names):
+            QMessageBox.warning(
+                self,
+                self.tr("Cannot Extract Containers"),
+                self.tr("Selected containers would create folders with duplicate names."),
+            )
+            return
+        conflicts = tuple(destination / name for name in folder_names if os.path.lexists(destination / name))
+        if conflicts:
+            shown = "\n".join(str(path) for path in conflicts[:8])
+            if len(conflicts) > 8:
+                shown += "\n... and {0} more".format(len(conflicts) - 8)
+            QMessageBox.warning(
+                self,
+                self.tr("Cannot Extract Containers"),
+                self.tr("A same-name output folder already exists:\n{0}").format(shown),
+            )
+            return
+
+        task_id, task = self._start_progress_task(
+            "extract_nested_containers",
+            container_kind,
+            self.tr("Extracting selected {0} into same-name folders...").format(
+                container_kind
+            ),
+        )
+        task.directory_keys = (str(destination).casefold(),)
+        progress = lambda completed, total: self._external_open_signals.progress.emit(
+            task_id,
+            completed,
+            total,
+        )
+        task.future = self._task_executor.submit(
+            self._application_api.extract_nested_mix_entries_to_folders,
+            page.archive.path,
+            tuple(entry.file_id for entry in entries),
+            destination,
+            parent_entry_ids=tuple(parent.entry_id for parent in page.archive.parents),
+            progress=progress,
+            cancellation_requested=task.cancellation.is_cancelled,
+        )
+        task.future.add_done_callback(
+            lambda completed, pending_id=task_id: self._forward_progress_task(pending_id, completed)
+        )
+
+    @staticmethod
+    def _entry_container_type(entry: MixEntry | DirectoryEntry | Path) -> str | None:
+        if isinstance(entry, Path):
+            suffix = entry.suffix.casefold()
+            return suffix[1:].upper() if suffix in MIX_CONTAINER_SUFFIXES else None
+        if isinstance(entry, DirectoryEntry):
+            if entry.is_directory:
+                return None
+            suffix = entry.path.suffix.casefold()
+            if suffix in MIX_CONTAINER_SUFFIXES:
+                return suffix[1:].upper()
+            return "MIX" if entry.file_type.casefold() == "mix" else None
+        suffix = Path(entry.name or "").suffix.casefold()
+        if suffix in MIX_CONTAINER_SUFFIXES:
+            return suffix[1:].upper()
+        return "MIX" if (entry.file_type or "").casefold() == "mix" else None
+
+    def _container_kind_label(
+        self,
+        entries: tuple[MixEntry | DirectoryEntry | Path, ...],
+    ) -> str:
+        kinds = {kind for entry in entries if (kind := self._entry_container_type(entry))}
+        return next(iter(kinds)) if len(kinds) == 1 else self.tr("containers")
+
     @staticmethod
     def _entry_is_browsable(entry: MixEntry | DirectoryEntry) -> bool:
         if isinstance(entry, DirectoryEntry):
-            return entry.is_directory or entry.path.suffix.casefold() == ".mix" or entry.file_type.casefold() == "mix"
-        return (
-            Path(entry.name or "").suffix.casefold() == ".mix"
-            or (entry.file_type or "").casefold() == "mix"
-        )
+            return entry.is_directory or MixBrowserWindow._entry_container_type(entry) is not None
+        return MixBrowserWindow._entry_container_type(entry) is not None
 
     def _open_selected_entry(self, page, index: QModelIndex) -> None:
         if isinstance(page, MixArchivePage):
@@ -4648,7 +5363,6 @@ class MixBrowserWindow(QMainWindow):
                 name
                 for name in names
                 if not is_readable_mix_name(name)
-                or name.casefold() == LOCAL_MIX_DATABASE_NAME.casefold()
             ),
             None,
         )
@@ -4656,7 +5370,24 @@ class MixBrowserWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 self.tr("Unable to Paste Items"),
-                self.tr('{0} cannot be stored as a MIX entry name.').format(invalid_name),
+                self.tr(
+                    '"{0}" cannot be added as an item inside this MIX archive. MIX identifies items by hashing their names, and this application currently supports printable ASCII names up to 260 characters. Names cannot start or end with whitespace or contain < > : " / \\ | ? *. Rename the file and try again.'
+                ).format(invalid_name),
+            )
+            return
+        reserved_name = next(
+            (
+                name
+                for name in names
+                if name.casefold() == LOCAL_MIX_DATABASE_NAME.casefold()
+            ),
+            None,
+        )
+        if reserved_name is not None:
+            QMessageBox.warning(
+                self,
+                self.tr("Unable to Paste Items"),
+                self.tr("{0} is reserved for embedded MIX name data.").format(reserved_name),
             )
             return
         try:
@@ -4734,6 +5465,99 @@ class MixBrowserWindow(QMainWindow):
             )
         task.future.add_done_callback(
             lambda completed, pending_id=task_id: self._forward_progress_task(pending_id, completed)
+        )
+
+    # @arch mix-browser.extract-selected-mix-archives handler | en: Extracts selected MIX archives into sibling folders without modifying the archives | zh: 将选中的 MIX 归档解包到同级文件夹且不修改归档
+    def _extract_mix_archives_to_folders(
+        self,
+        page: DirectoryBrowserPage,
+        archive_paths: tuple[Path, ...],
+        container_kind: str,
+    ) -> None:
+        if not archive_paths:
+            return
+        folder_names = tuple(path.stem.casefold() for path in archive_paths)
+        if len(folder_names) != len(set(folder_names)):
+            QMessageBox.warning(
+                self,
+                self.tr("Cannot Extract Containers"),
+                self.tr("Selected containers would create folders with duplicate names."),
+            )
+            return
+        conflicts = tuple(
+            page.directory / path.stem
+            for path in archive_paths
+            if os.path.lexists(page.directory / path.stem)
+        )
+        if conflicts:
+            shown = "\n".join(str(path) for path in conflicts[:8])
+            if len(conflicts) > 8:
+                shown += "\n... and {0} more".format(len(conflicts) - 8)
+            QMessageBox.warning(
+                self,
+                self.tr("Cannot Extract Containers"),
+                self.tr("A same-name output folder already exists:\n{0}").format(shown),
+            )
+            return
+
+        task_id, task = self._start_progress_task(
+            "extract_archives",
+            container_kind,
+            self.tr("Extracting selected {0} into same-name folders...").format(container_kind),
+        )
+        task.page_key = page.path_key
+        task.directory_keys = (str(page.directory.resolve()).casefold(),)
+        progress = lambda completed, total: self._external_open_signals.progress.emit(
+            task_id,
+            completed,
+            total,
+        )
+        task.future = self._task_executor.submit(
+            self._browser_application.extract_mix_archives_to_folders,
+            archive_paths,
+            page.directory,
+            progress=progress,
+            cancellation_requested=task.cancellation.is_cancelled,
+        )
+        task.future.add_done_callback(
+            lambda completed, pending_id=task_id: self._forward_progress_task(pending_id, completed)
+        )
+
+    def _finish_extract_mix_archives_task(
+        self,
+        task: _ExternalProgressTask,
+        result: object,
+        error: str,
+    ) -> None:
+        if error == "cancelled":
+            self.statusBar().showMessage(self.tr("Container extraction cancelled."), 6000)
+            return
+        if error or not isinstance(result, dict):
+            detail = str(result) if result else self.tr("The selected containers could not be extracted.")
+            self.statusBar().showMessage(
+                self.tr("Could not extract selected containers: {0}").format(detail),
+                9000,
+            )
+            return
+
+        created_paths = tuple(Path(path) for path in result.get("created_paths", ()))
+        if not created_paths:
+            self.statusBar().showMessage(self.tr("No folders were created."), 6000)
+            return
+        self._close_pages_for_filesystem_paths(created_paths)
+        parent = created_paths[0].parent.resolve()
+        for open_page in tuple(self._pages_by_path.values()):
+            if (
+                isinstance(open_page, DirectoryBrowserPage)
+                and open_page.directory.resolve() == parent
+            ):
+                self._refresh_directory_page(open_page)
+        self.statusBar().showMessage(
+            self.tr("Extracted {0} file(s) from {1} selected container(s) into same-name folders.").format(
+                result.get("extracted_file_count", 0),
+                len(created_paths),
+            ),
+            8000,
         )
 
     # @arch mix-browser.rename-browser-item handler | en: Renames a selected filesystem item or MIX entry | zh: 重命名选中的文件系统对象或 MIX 条目
@@ -4836,6 +5660,23 @@ class MixBrowserWindow(QMainWindow):
         page: MixArchivePage | DirectoryBrowserPage,
     ) -> None:
         page.preview.set_auto_play_preferences(**self._auto_play_preferences)
+
+    def _apply_preview_background(
+        self,
+        page: MixArchivePage | DirectoryBrowserPage,
+    ) -> None:
+        page.preview.set_preview_background(
+            self._preview_background_mode,
+            self._preview_background_color,
+        )
+
+    def _apply_preview_asset_boundaries_visibility(
+        self,
+        page: MixArchivePage | DirectoryBrowserPage,
+    ) -> None:
+        page.preview.set_asset_boundaries_visible(
+            self._preview_asset_boundaries_visible
+        )
 
     def _create_modified_file_banner(self) -> None:
         self._modified_file_banner = QWidget(self.container)
@@ -5369,6 +6210,7 @@ class MixBrowserWindow(QMainWindow):
             self,
             developer_tools_enabled=developer_tools,
             copy_action=self._copy_action,
+            interaction_help=self._interaction_help,
         )
         dialog.setModal(False)
         dialog.setWindowModality(Qt.WindowModality.NonModal)
@@ -6034,7 +6876,7 @@ class MixBrowserWindow(QMainWindow):
                         if not is_readable_mix_name(source.name):
                             add_enabled = False
                             disabled_reason = self.tr(
-                                "{0} cannot be stored as a MIX entry name."
+                                '"{0}" cannot be added as an item inside this MIX archive. MIX identifies items by hashing their names, and this application currently supports printable ASCII names up to 260 characters. Names cannot start or end with whitespace or contain < > : " / \\ | ? *. Rename the file and try again.'
                             ).format(source.name)
                             continue
                         if source.name.casefold() == LOCAL_MIX_DATABASE_NAME.casefold():
@@ -6528,6 +7370,112 @@ class MixBrowserWindow(QMainWindow):
 
         QTimer.singleShot(0, dispatch_open)
 
+    # @arch mix-browser.open-directory-in-file-explorer handler | en: Opens a filesystem location and selects its target items in File Explorer | zh: 在文件资源管理器中打开文件系统位置并选中目标项目
+    def _open_directory_in_file_explorer(
+        self,
+        directory: Path,
+        selected_paths: tuple[Path, ...] = (),
+    ) -> None:
+        try:
+            location = Path(os.path.abspath(directory.expanduser()))
+            if not location.is_dir():
+                raise OSError(f"Not a directory: {location}")
+
+            targets = tuple(
+                Path(os.path.abspath(path.expanduser())) for path in selected_paths
+            )
+            location_key = os.path.normcase(str(location))
+            if any(
+                os.path.normcase(str(path.parent)) != location_key
+                or not os.path.lexists(path)
+                for path in targets
+            ):
+                raise OSError("A selected filesystem item is no longer available.")
+
+            if targets and os.name == "nt":
+                opened = self._windows_open_folder_and_select_items(location, targets)
+            else:
+                opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(location)))
+        except (OSError, RuntimeError, ValueError):
+            opened = False
+        if not opened:
+            QMessageBox.warning(
+                self,
+                self.tr("Unable to Open in File Explorer"),
+                self.tr(
+                    "Could not open or select this location in File Explorer:\n{0}"
+                ).format(selected_paths[0] if selected_paths else directory),
+            )
+
+    @staticmethod
+    def _windows_open_folder_and_select_items(
+        directory: Path,
+        selected_paths: tuple[Path, ...],
+    ) -> bool:
+        from ctypes import wintypes
+
+        shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+        ole32 = ctypes.WinDLL("ole32", use_last_error=True)
+        pidl_type = ctypes.c_void_p
+
+        shell32.SHParseDisplayName.argtypes = [
+            wintypes.LPCWSTR,
+            ctypes.c_void_p,
+            ctypes.POINTER(pidl_type),
+            wintypes.DWORD,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        shell32.SHParseDisplayName.restype = ctypes.c_long
+        shell32.ILFindLastID.argtypes = [pidl_type]
+        shell32.ILFindLastID.restype = pidl_type
+        shell32.SHOpenFolderAndSelectItems.argtypes = [
+            pidl_type,
+            wintypes.UINT,
+            ctypes.POINTER(pidl_type),
+            wintypes.DWORD,
+        ]
+        shell32.SHOpenFolderAndSelectItems.restype = ctypes.c_long
+        ole32.CoTaskMemFree.argtypes = [pidl_type]
+        ole32.CoTaskMemFree.restype = None
+
+        allocated_pidls: list[ctypes.c_void_p] = []
+
+        def parse_path(path: Path) -> ctypes.c_void_p | None:
+            pidl = ctypes.c_void_p()
+            result = shell32.SHParseDisplayName(
+                str(path), None, ctypes.byref(pidl), 0, None
+            )
+            if pidl.value:
+                allocated_pidls.append(pidl)
+            if result < 0 or not pidl.value:
+                return None
+            return pidl
+
+        try:
+            folder_pidl = parse_path(directory)
+            if folder_pidl is None:
+                return False
+
+            child_pidls = (pidl_type * len(selected_paths))()
+            for index, path in enumerate(selected_paths):
+                item_pidl = parse_path(path)
+                if item_pidl is None:
+                    return False
+                child_pidls[index] = shell32.ILFindLastID(item_pidl)
+                if not child_pidls[index]:
+                    return False
+
+            result = shell32.SHOpenFolderAndSelectItems(
+                folder_pidl,
+                len(selected_paths),
+                child_pidls,
+                0,
+            )
+            return result >= 0
+        finally:
+            for pidl in allocated_pidls:
+                ole32.CoTaskMemFree(pidl)
+
     def _open_directory(
         self,
         directory: Path,
@@ -6559,11 +7507,21 @@ class MixBrowserWindow(QMainWindow):
             ancestors=ancestors,
             parent=self.tabs,
             preview=prepared_preview,
+            renderer_resources=self._voxel_renderer_resources,
+            interaction_help=self._interaction_help,
         )
         self._configure_entry_type_filters(page.entry_table)
         self._apply_auto_play_preferences(page)
+        self._apply_preview_background(page)
+        self._apply_preview_asset_boundaries_visibility(page)
         page.preview.auto_play_preference_changed.connect(
             self._set_auto_play_preference
+        )
+        page.preview.background_preference_changed.connect(
+            self._set_preview_background_preference
+        )
+        page.preview.boundary_visibility_preference_changed.connect(
+            self._set_preview_asset_boundaries_visible
         )
         page.navigate_requested.connect(self._activate_page)
         page.preview_requested.connect(
@@ -6586,13 +7544,11 @@ class MixBrowserWindow(QMainWindow):
             system_icon_for_object(is_directory=True),
             title,
         )
-        if prepared_preview is not None:
-            page.preview.prepare_video_surface()
         self.tabs.setTabToolTip(index, page.location_text)
         self.tabs.setCurrentIndex(index)
         self._sync_breadcrumb_navigation()
         self._register_drop_targets(page)
-        page.table.doubleClicked.connect(
+        page.table.activated.connect(
             lambda model_index, opened_page=page: self._open_directory_entry(
                 opened_page,
                 model_index,
@@ -7418,11 +8374,21 @@ class MixBrowserWindow(QMainWindow):
             location_text=page_location,
             parent=self.tabs,
             preview=prepared_preview,
+            renderer_resources=self._voxel_renderer_resources,
+            interaction_help=self._interaction_help,
         )
         self._configure_entry_type_filters(page.entry_table)
         self._apply_auto_play_preferences(page)
+        self._apply_preview_background(page)
+        self._apply_preview_asset_boundaries_visibility(page)
         page.preview.auto_play_preference_changed.connect(
             self._set_auto_play_preference
+        )
+        page.preview.background_preference_changed.connect(
+            self._set_preview_background_preference
+        )
+        page.preview.boundary_visibility_preference_changed.connect(
+            self._set_preview_asset_boundaries_visible
         )
         page.navigate_requested.connect(self._activate_page)
         page.preview_requested.connect(
@@ -7445,15 +8411,13 @@ class MixBrowserWindow(QMainWindow):
             system_icon_for_object(is_directory=False),
             title,
         )
-        if prepared_preview is not None:
-            page.preview.prepare_video_surface()
         self.tabs.setTabToolTip(index, page.location_text)
         self._sync_empty_state()
         self.tabs.setCurrentIndex(index)
         page.table.setFocus()
         self._sync_breadcrumb_navigation()
         self._register_drop_targets(page)
-        page.table.doubleClicked.connect(
+        page.table.activated.connect(
             lambda index, opened_page=page: self._open_entry(opened_page, index)
         )
         self._update_window_title()
@@ -7466,13 +8430,13 @@ class MixBrowserWindow(QMainWindow):
             return
         self._cancel_entry_preview(path_key)
         if isinstance(page, MixArchivePage) and isinstance(entry, MixEntry):
-            if not is_previewable_file_name(entry.name or ""):
+            if not is_previewable_file(entry.name or "", entry.file_type):
                 page.clear_preview()
                 return
             loader = load_entry_preview
             source = page.archive
         elif isinstance(page, DirectoryBrowserPage) and isinstance(entry, DirectoryEntry):
-            if entry.is_directory or not is_previewable_file_name(entry.path.name):
+            if entry.is_directory or not is_previewable_file(entry.path.name):
                 page.clear_preview()
                 return
             loader = load_path_preview
@@ -7848,6 +8812,10 @@ class MixBrowserWindow(QMainWindow):
         cancellation = TaskCancellationToken()
         title = {
             "extract": self.tr("Creating temporary file"),
+            "extract_archives": self.tr("Extracting {0}").format(display_name),
+            "extract_nested_containers": self.tr("Extracting {0}").format(display_name),
+            "create_mix": self.tr("Creating MIX archive"),
+            "create_nested_mix": self.tr("Creating nested MIX archive"),
             "add": self.tr("Adding files"),
             "directory": self.tr("Updating folder items"),
             "save": self.tr("Saving MIX archive"),
@@ -7979,6 +8947,15 @@ class MixBrowserWindow(QMainWindow):
             return
 
         task.dialog.finish()
+        if task.kind in {"extract_archives", "extract_nested_containers"}:
+            self._finish_extract_mix_archives_task(task, result, error)
+            return
+        if task.kind == "create_mix":
+            self._finish_create_mix_from_files_task(task, result, error)
+            return
+        if task.kind == "create_nested_mix":
+            self._finish_edit_entries_task(task, result, error)
+            return
         if task.kind == "save":
             self._finish_save_mix_task(task, result, error)
             return
@@ -8145,6 +9122,25 @@ class MixBrowserWindow(QMainWindow):
                 self._remove_modified_external_file(tracked_path)
             else:
                 tracked.archive_signature = result.archive_signature
+
+        if result.created_mix_action is not None:
+            if result.refresh_error:
+                message = self.tr(
+                    "The nested MIX was created, but some open archive views could not be refreshed. Reopen the archive to see the changes."
+                )
+            else:
+                target_name = result.added_names[0] if result.added_names else task.display_name
+                if result.created_mix_action == "move":
+                    message = self.tr(
+                        "Created nested MIX {0} and moved {1} selected item(s) in {2}."
+                    ).format(target_name, result.created_mix_item_count, target_page.location_text if isinstance(target_page, MixArchivePage) else result.destination)
+                else:
+                    message = self.tr(
+                        "Created nested MIX {0} and copied {1} selected item(s) in {2}."
+                    ).format(target_name, result.created_mix_item_count, target_page.location_text if isinstance(target_page, MixArchivePage) else result.destination)
+            self.statusBar().showMessage(message, 9000)
+            self._sync_workspace_actions()
+            return
 
         if result.refresh_error:
             self.statusBar().showMessage(
@@ -8564,6 +9560,26 @@ class MixBrowserWindow(QMainWindow):
             return
 
         menu = QMenu(self)
+        location = (
+            target.directory
+            if isinstance(target, DirectoryBrowserPage)
+            else target.archive.path
+        )
+        location = Path(os.path.abspath(location))
+        if location.parent == location:
+            directory = location
+            selected_paths: tuple[Path, ...] = ()
+        else:
+            directory = location.parent
+            selected_paths = (location,)
+        directory_available = directory is not None and directory.is_dir()
+        explorer_action = menu.addAction(self.tr("Open in File Explorer"))
+        explorer_action.setEnabled(directory_available)
+        if not explorer_action.isEnabled():
+            explorer_action.setToolTip(
+                self.tr("Only filesystem items have a containing folder in File Explorer.")
+            )
+        menu.addSeparator()
         close_tab_action = menu.addAction(self.tr("Close Tab"))
         menu.addSeparator()
         close_others_action = menu.addAction(self.tr("Close Other Tabs"))
@@ -8576,7 +9592,10 @@ class MixBrowserWindow(QMainWindow):
         close_all_action = menu.addAction(self.tr("Close All Tabs"))
 
         selected_action = menu.exec(tab_bar.mapToGlobal(position))
-        if selected_action is close_tab_action:
+        if selected_action is explorer_action:
+            if directory is not None:
+                self._open_directory_in_file_explorer(directory, selected_paths)
+        elif selected_action is close_tab_action:
             self._close_page(target)
         elif selected_action is close_others_action:
             for candidate in reversed(

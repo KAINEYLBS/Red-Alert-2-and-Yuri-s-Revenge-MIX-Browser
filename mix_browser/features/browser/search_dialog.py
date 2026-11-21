@@ -42,7 +42,13 @@ from mix_browser.features.browser.file_type_support import (
     browser_type_filter_key,
 )
 from mix_browser.features.browser.recursive_search import SearchHit, SearchOutcome
-from mix_browser.features.browser.rounded_row_delegate import RoundedRowDelegate
+from mix_browser.shared.interaction_help import InteractionHelpCatalog
+from mix_browser.shared.table_row_delegate import ApplicationTableRowDelegate
+from mix_browser.shared.table_sorting import (
+    ApplicationSortableTableView,
+    reorder_model_rows_preserving_indexes,
+    stable_multi_sort,
+)
 
 
 # @arch mix-browser.search-results-model model | en: Filters recursive search hits by type and palette state | zh: 按文件类型与色盘状态筛选递归搜索结果
@@ -56,6 +62,7 @@ class SearchResultsTableModel(QAbstractTableModel):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._all_hits: tuple[SearchHit, ...] = ()
+        self._filtered_hits: tuple[SearchHit, ...] = ()
         self._hits: tuple[SearchHit, ...] = ()
         self._type_filter: str | None = None
         self._fallback_palette_filter = False
@@ -77,6 +84,9 @@ class SearchResultsTableModel(QAbstractTableModel):
 
     def hit_at(self, row: int) -> SearchHit | None:
         return self._hits[row] if 0 <= row < len(self._hits) else None
+
+    def row_object_at(self, row: int) -> SearchHit | None:
+        return self.hit_at(row)
 
     @property
     def total_count(self) -> int:
@@ -127,20 +137,50 @@ class SearchResultsTableModel(QAbstractTableModel):
         if self._fallback_palette_filter:
             hits = tuple(hit for hit in hits if hit.uses_fallback_palette is True)
         if self._type_filter is None:
-            self._hits = hits
+            self._filtered_hits = hits
         elif self._type_filter == self.OTHER_FILTER:
-            self._hits = tuple(
+            self._filtered_hits = tuple(
                 hit
                 for hit in hits
                 if browser_type_filter_key(hit.type_label, hit.relative_path)
                 == self.OTHER_FILTER
             )
         else:
-            self._hits = tuple(
+            self._filtered_hits = tuple(
                 hit
                 for hit in hits
                 if browser_type_filter_key(hit.type_label, hit.relative_path) == self._type_filter
             )
+        self._hits = self._filtered_hits
+
+    def sort(self, column: int, order: Qt.SortOrder = Qt.SortOrder.AscendingOrder) -> None:
+        if not 0 <= column < len(self.HEADERS):
+            return
+        self.sort_by_columns(((column, order),))
+
+    def sort_by_columns(
+        self,
+        sort_keys: tuple[tuple[int, Qt.SortOrder], ...],
+    ) -> None:
+        hits = stable_multi_sort(
+            self._filtered_hits,
+            sort_keys,
+            self._sort_key,
+        )
+        reorder_model_rows_preserving_indexes(
+            self,
+            self._hits,
+            hits,
+            lambda rows: setattr(self, "_hits", tuple(rows)),
+        )
+
+    @staticmethod
+    def _sort_key(column: int, hit: SearchHit) -> str:
+        return (
+            hit.relative_path.casefold()
+            if column == 0
+            else browser_file_type_label(hit.type_label, hit.relative_path).casefold()
+        )
 
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
         if not index.isValid() or not 0 <= index.row() < len(self._hits):
@@ -172,11 +212,16 @@ class SearchResultsTableModel(QAbstractTableModel):
 
 
 # @arch mix-browser.search-results-table-view component | en: Starts copy-only drags from selected search results | zh: 从选中的搜索结果启动仅复制拖拽
-class _SearchResultsTableView(QTableView):
+class _SearchResultsTableView(ApplicationSortableTableView):
     drag_requested = Signal()
 
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
+    def __init__(
+        self,
+        parent=None,
+        *,
+        interaction_help: InteractionHelpCatalog | None = None,
+    ) -> None:
+        super().__init__(parent, interaction_help=interaction_help)
         self._drag_start_active = False
 
     def startDrag(self, _supported_actions) -> None:
@@ -207,6 +252,7 @@ class SearchResultsDialog(QDialog):
         *,
         developer_tools_enabled: bool = False,
         copy_action: QAction,
+        interaction_help: InteractionHelpCatalog | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Search from Root"))
@@ -267,7 +313,10 @@ class SearchResultsDialog(QDialog):
         type_filter_row.addWidget(self.palette_filter_combo)
         type_filter_row.addWidget(self.type_filter_label)
         type_filter_row.addWidget(self.type_filter_combo)
-        self.table = _SearchResultsTableView(self)
+        self.table = _SearchResultsTableView(
+            self,
+            interaction_help=interaction_help,
+        )
         self.table.setModel(self.model)
         self.table.addAction(copy_action)
         self.table.setDragEnabled(True)
@@ -282,7 +331,7 @@ class SearchResultsDialog(QDialog):
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setAlternatingRowColors(True)
         self.table.setShowGrid(False)
-        self._row_delegate = RoundedRowDelegate(self.table)
+        self._row_delegate = ApplicationTableRowDelegate(self.table)
         self.table.setItemDelegate(self._row_delegate)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(False)
@@ -297,7 +346,7 @@ class SearchResultsDialog(QDialog):
         self.table.selectionModel().currentChanged.connect(
             self._on_current_result_changed
         )
-        self.table.doubleClicked.connect(self._open_result)
+        self.table.activated.connect(self._open_result)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, self)
         buttons.rejected.connect(self.reject)
@@ -535,7 +584,7 @@ class SearchResultsDialog(QDialog):
             return
 
         menu = QMenu(self)
-        open_action = menu.addAction(self.tr("Open\tDouble-click"))
+        open_action = menu.addAction(self.tr("Open\tEnter or double-click"))
         menu.addAction(self.copy_action)
         menu.addSeparator()
         location_action = menu.addAction(self.tr("Open Location\tSingle-click"))

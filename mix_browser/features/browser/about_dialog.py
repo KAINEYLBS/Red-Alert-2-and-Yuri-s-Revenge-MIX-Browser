@@ -129,10 +129,10 @@ class AboutDialog(QDialog):
         interfaces_text = QLabel(
             self.tr(
                 "Desktop: mix-browser\n"
-                "CLI: mix-browser-cli, with structured JSON output\n"
-                "MCP: mix-browser-mcp (Model Context Protocol), using local stdio\n\n"
-                "CLI and MCP expose directory and MIX operations, recursive search, "
-                "type detection, and supported preview data."
+                "CLI: mix-browser-cli\n"
+                "MCP: mix-browser-mcp (Model Context Protocol)\n\n"
+                "CLI and MCP provide programmatic access to application features "
+                "for automation and integration."
             ),
             application_interfaces,
         )

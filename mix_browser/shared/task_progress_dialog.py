@@ -174,7 +174,13 @@ class TaskProgressController(QObject):
             }
         )
 
-    def finish(self, session: TaskProgressDialog, *, message: str | None = None) -> None:
+    def finish(
+        self,
+        session: TaskProgressDialog,
+        *,
+        message: str | None = None,
+        dismiss_delay_ms: int = 0,
+    ) -> None:
         if session.task_id not in self._sessions:
             self._delete_session_later(session)
             return
@@ -184,6 +190,7 @@ class TaskProgressController(QObject):
                 "command": "finish",
                 "task_id": session.task_id,
                 "message": message or "",
+                "dismiss_delay_ms": max(0, int(dismiss_delay_ms)),
             }
         )
 
@@ -450,6 +457,7 @@ class TaskProgressController(QObject):
                 self._release_owner_blocker(task_id)
                 self._sessions.pop(task_id, None)
                 if session is not None:
+                    session._handle_helper_hidden()
                     self._delete_session_later(session)
 
     def _handle_process_error(self, error: QProcess.ProcessError) -> None:
@@ -482,6 +490,7 @@ class TaskProgressController(QObject):
 # @arch mix-browser.task-progress-dialog component | en: Sends a task's progress and cancellation state to the shared UI helper process | zh: 将单项任务的进度与取消状态发送到共享 UI 辅助进程
 class TaskProgressDialog(QObject):
     shown = Signal()
+    hidden = Signal()
     helper_unavailable = Signal()
 
     def __init__(
@@ -568,13 +577,22 @@ class TaskProgressDialog(QObject):
         self._message = message
         self._controller.update(self, {"message": message})
 
-    def finish(self, message: str | None = None) -> None:
+    def finish(
+        self,
+        message: str | None = None,
+        *,
+        dismiss_delay_ms: int = 0,
+    ) -> None:
         if self._finished:
             return
         self._finished = True
         if message is not None:
             self._message = message
-        self._controller.finish(self, message=message)
+        self._controller.finish(
+            self,
+            message=message,
+            dismiss_delay_ms=dismiss_delay_ms,
+        )
 
     def _payload(self) -> dict[str, object]:
         return {
@@ -610,6 +628,9 @@ class TaskProgressDialog(QObject):
             _LOGGER.exception("The progress cancellation callback failed.")
 
     def _handle_helper_unavailable(self) -> None:
+        if self._finished:
+            self.helper_unavailable.emit()
+            return
         if not self._active:
             return
         self._active = False
@@ -625,6 +646,10 @@ class TaskProgressDialog(QObject):
     def _handle_helper_shown(self) -> None:
         if self._active and not self._finished:
             self.shown.emit()
+
+    def _handle_helper_hidden(self) -> None:
+        self._active = False
+        self.hidden.emit()
 
 
 def _format_bytes(value: int) -> str:

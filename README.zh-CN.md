@@ -2,7 +2,7 @@
 
 **Red Alert 2 and Yuri's Revenge MIX Browser** 是一款桌面应用，用于浏览和管理 Westwood MIX 归档，以及普通游戏文件和文件夹。
 
-版本：**1.0.0**
+版本：**1.1.0**
 
 README： [English](README.md) | 简体中文  
 界面语言：英语、简体中文
@@ -28,15 +28,19 @@ README： [English](README.md) | 简体中文
 | SHP 动画 | `.shp`、`.shp-ts` |
 | PCX 图像 | `.pcx`、`.mmp`* |
 | 色盘 | `.pal` |
-| 体素模型 | `.vxl` |
+| 体素模型 | `.vxl`、`.hva` |
 | XCC 名称数据 | `.dat` |
 | 音频 | `.wav` |
 | 视频 | `.bik`、`.bk2`、`.bink` |
 | 可浏览的 MIX 容器 | `.mix`、`.mmx`、`.yro` |
 
-`*` 只有当 `.mmp` 文件内容具有有效的 PCX 签名时，程序才会将其作为 PCX 预览。`.dat` 仅支持可识别的 XCC MIX 名称数据库。PAL 预览支持 Westwood 原始色盘、JASC 和 RIFF 格式。HVA 文件没有独立预览；VXL 预览展示体素几何，不应用 HVA 变换或肢体动画。目录和 MIX 容器用于浏览，不作为文档预览。
+`*` 只有当 `.mmp` 文件内容具有有效的 PCX 签名时，程序才会将其作为 PCX 预览。`.dat` 仅支持可识别的 XCC MIX 名称数据库。PAL 预览支持 Westwood 原始色盘、JASC 和 RIFF 格式。选择 VXL 可预览静态几何；选择 HVA 时，程序会查找同一 MIX 或文件夹中的同名 VXL，并应用 HVA 姿态，也可手动选择 HVA 帧。没有有效配对文件的 HVA 无法预览。目录和 MIX 容器用于浏览，不作为文档预览。
 
-预览限制：文本条目最多显示 2 MiB，超出部分会截断；大于 64 MiB 的 DAT 条目不预览；SHP 和 PCX 图像最多解码 33,554,432 个像素；大于 64 MiB 的 SHP、PCX 和 VXL 条目不预览；大于 128 MiB 的 WAV 和 Bink 条目不预览。
+预览限制：文本条目最多显示 2 MiB，超出部分会截断；大于 64 MiB 的 DAT 条目不预览；SHP 和 PCX 图像最多解码 33,554,432 个像素；大于 64 MiB 的 SHP、PCX 和 VXL 条目不预览；大于 16 MiB 或超过 1,024 帧的 HVA 不会应用；大于 128 MiB 的 WAV 和 Bink 条目不预览。
+
+### Windows 下的 VLC 播放启动延迟
+
+音视频预览使用 VLC。首次播放时，VLC 初始化媒体播放流程可能需要一些时间。Windows Defender 实时保护可能在首次访问 VLC 运行文件时扫描它们；扫描期间，程序界面可能短暂看起来像无响应。NVIDIA Instant Replay 也可能监测 VLC 播放并造成类似延迟，通常影响较轻。不同系统的情况会有差异；这些是可能的系统侧因素，并非每次延迟都能确定由它们造成，通常首次使用时最明显。
 
 程序不会附带游戏文件。在 **编辑 > 首选项 > 色盘来源** 中选择现有 RA2/YR 游戏目录，可在预览时使用其中的色盘和 Art 规则。游戏目录作为设置保存，游戏文件会在原位置读取。
 
@@ -129,4 +133,4 @@ RA2AYRMB 提供基于本地 stdio 的 MCP（Model Context Protocol）服务器�
 
 项目原创源代码、文档和素材（包括手绘的 `MIX-EXE.ico`、`MIX-FILE.ico`、`MMX-FILE.ico` 和 `YRO-FILE.ico` 图标）采用 [MIT 许可证](LICENSE)。此许可证不会自动覆盖单独来源的数据集、游戏文件、Qt/PySide、`python-vlc`、libVLC、FFmpeg 或其编解码器。二进制包中的第三方声明见[第三方声明](THIRD_PARTY_NOTICES.md)。
 
-随包附带的 XCC 名称表涵盖泰伯利亚黎明、泰伯利亚之日和红色警戒 2/尤里的复仇，标注为 GPL-3.0 并附有相应许可文本。可选的 CnCNet 社区 Global MIX Database 由用户按需从原论坛附件下载，不随源码仓库或应用程序版本发布；其中还包含红色警戒名称表。其来源没有声明单独许可证，因此目前尚未确认再分发授权；项目 MIT 许可不覆盖该下载数据库。第三方素材及其许可条款见[许可说明](docs/licensing.md)和[第三方声明](THIRD_PARTY_NOTICES.md)。
+随包附带的 XCC 名称表涵盖泰伯利亚黎明、泰伯利亚之日和红色警戒 2/尤里的复仇，标注为 GPL-3.0 并附有相应许可文本。可选的 CnCNet 社区 Global MIX Database 由用户按需从原论坛附件下载，不随源码仓库或应用程序版本发布；其中还包含红色警戒名称表。项目 MIT 许可适用于项目原创内容，不会改变单独来源数据本身的许可。第三方素材及其许可条款见[许可说明](docs/licensing.md)和[第三方声明](THIRD_PARTY_NOTICES.md)。

@@ -38,6 +38,7 @@ def extract_entries_for_drag(
     destination: Path,
     *,
     cancellation_requested: Callable[[], bool] | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> tuple[Path, ...]:
     before = archive.path.stat()
     expected_signature = (before.st_size, before.st_mtime_ns)
@@ -46,6 +47,10 @@ def extract_entries_for_drag(
     destination.mkdir(parents=True, exist_ok=False)
     used_names: set[str] = set()
     paths: list[Path] = []
+    total = sum(max(1, entry.size) for entry in entries) if progress else 0
+    completed = 0
+    if progress and total:
+        progress(0, total)
     try:
         for entry in entries:
             if cancellation_requested and cancellation_requested():
@@ -60,13 +65,33 @@ def extract_entries_for_drag(
                     duplicate_index += 1
             used_names.add(filename.casefold())
             path = destination / filename
+
+            def report_entry_progress(
+                copied: int,
+                entry_total: int,
+                *,
+                base: int = completed,
+                units: int = max(1, entry.size),
+            ) -> None:
+                if progress and total:
+                    entry_completed = (
+                        units
+                        if entry_total <= 0
+                        else min(units, copied * units // entry_total)
+                    )
+                    progress(base + entry_completed, total)
+
             copy_mix_entry_and_hash(
                 archive,
                 entry,
                 path,
                 cancellation_requested=cancellation_requested,
+                progress=report_entry_progress if progress else None,
             )
             paths.append(path)
+            completed += max(1, entry.size)
+            if progress and total:
+                progress(completed, total)
         after = archive.path.stat()
         if (after.st_size, after.st_mtime_ns) != expected_signature:
             raise OSError("The source MIX archive changed during drag preparation.")

@@ -156,6 +156,7 @@ class VlcMediaPlayer(QWidget):
     playback_state_changed = Signal(bool)
     position_changed = Signal(int)
     duration_changed = Signal(int)
+    video_size_changed = Signal(int, int)
     media_ready_changed = Signal(bool)
     error_occurred = Signal(str)
 
@@ -170,6 +171,8 @@ class VlcMediaPlayer(QWidget):
         self._player = None
         self._media = None
         self._media_data: bytes | None = None
+        self._media_has_video = False
+        self._video_size: tuple[int, int] | None = None
         self._pending_media_data: bytes | None = None
         self._pending_media_suffix = ""
         self._callbacks: tuple[object, ...] = ()
@@ -297,6 +300,7 @@ class VlcMediaPlayer(QWidget):
             return False
 
         self._media_data = media_data
+        self._media_has_video = suffix in {".bik", ".bk2"}
         self._callbacks = callbacks
         self._media = media
         self._error_reported = False
@@ -359,6 +363,7 @@ class VlcMediaPlayer(QWidget):
         if self._player is None or self._media is None:
             return
         try:
+            self._sync_video_size()
             self._player.set_pause(1)
             self._poll_timer.stop()
             self._set_playing(False)
@@ -404,9 +409,13 @@ class VlcMediaPlayer(QWidget):
         self._media = None
         self._callbacks = ()
         self._media_data = None
+        self._media_has_video = False
         self._pending_media_data = None
         self._pending_media_suffix = ""
         self._pending_seek_position = None
+        if self._video_size is not None:
+            self._video_size = None
+            self.video_size_changed.emit(0, 0)
         self._set_playing(False)
         if self._position_ms:
             self._position_ms = 0
@@ -503,6 +512,7 @@ class VlcMediaPlayer(QWidget):
             state = self._player.get_state()
             playing = state == self._vlc.State.Playing
             self._set_playing(playing)
+            self._sync_video_size()
             if playing:
                 self._initialize_audio_track()
 
@@ -525,6 +535,21 @@ class VlcMediaPlayer(QWidget):
         except Exception:
             logger.exception("Could not update libVLC playback state")
             self._poll_timer.stop()
+
+    def _sync_video_size(self) -> None:
+        if not self._media_has_video or self._player is None:
+            return
+        try:
+            size = self._player.video_get_size(0)
+            if not size or len(size) != 2:
+                return
+            width, height = int(size[0]), int(size[1])
+        except Exception:
+            return
+        if width <= 0 or height <= 0 or (width, height) == self._video_size:
+            return
+        self._video_size = (width, height)
+        self.video_size_changed.emit(width, height)
 
     def _initialize_audio_track(self) -> None:
         if self._player is None or self._audio_initialized:

@@ -11,6 +11,10 @@ from mix_browser.features.browser.directory_listing import (
 )
 from mix_browser.features.browser.file_type_support import browser_entry_type_display
 from mix_browser.features.browser.system_icons import system_icon_for_object
+from mix_browser.shared.table_sorting import (
+    reorder_model_rows_preserving_indexes,
+    stable_multi_sort,
+)
 
 
 class DirectoryEntryTableModel(QAbstractTableModel):
@@ -21,6 +25,7 @@ class DirectoryEntryTableModel(QAbstractTableModel):
 
     def __init__(self, entries: tuple[DirectoryEntry, ...] = (), parent=None) -> None:
         super().__init__(parent)
+        self._original_entries = list(entries)
         self._entries = list(entries)
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
@@ -43,8 +48,12 @@ class DirectoryEntryTableModel(QAbstractTableModel):
             return None
         return self._entries[row]
 
+    def row_object_at(self, row: int) -> DirectoryEntry | None:
+        return self.entry_at(row)
+
     def replace_entries(self, entries: tuple[DirectoryEntry, ...]) -> None:
         self.beginResetModel()
+        self._original_entries = list(entries)
         self._entries = list(entries)
         self.endResetModel()
 
@@ -102,18 +111,39 @@ class DirectoryEntryTableModel(QAbstractTableModel):
     def sort(self, column: int, order: Qt.SortOrder = Qt.SortOrder.AscendingOrder) -> None:
         if not 0 <= column < len(self.HEADERS):
             return
-        self.layoutAboutToBeChanged.emit()
-        reverse = order == Qt.SortOrder.DescendingOrder
+        self.sort_by_columns(((column, order),))
+
+    def sort_by_columns(
+        self,
+        sort_keys: tuple[tuple[int, Qt.SortOrder], ...],
+    ) -> None:
+        sort_keys = tuple(
+            (column, order)
+            for column, order in sort_keys
+            if 0 <= column < len(self.HEADERS)
+        )
+        entries = stable_multi_sort(
+            self._original_entries,
+            sort_keys,
+            self._sort_key,
+        )
+
+        reorder_model_rows_preserving_indexes(
+            self,
+            self._entries,
+            entries,
+            lambda rows: setattr(self, "_entries", rows),
+        )
+
+    @staticmethod
+    def _sort_key(column: int, entry: DirectoryEntry):
         if column == 0:
-            key = lambda entry: entry.path.name.casefold()
-        elif column == 1:
-            key = lambda entry: browser_entry_type_display(
+            return entry.path.name.casefold()
+        if column == 1:
+            return browser_entry_type_display(
                 entry.file_type,
                 entry.path.name,
             ).casefold()
-        elif column == 2:
-            key = lambda entry: (-1 if entry.is_directory else entry.size)
-        else:
-            key = lambda entry: entry.modified
-        self._entries.sort(key=key, reverse=reverse)
-        self.layoutChanged.emit()
+        if column == 2:
+            return -1 if entry.is_directory else entry.size
+        return entry.modified

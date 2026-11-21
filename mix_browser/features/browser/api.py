@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from PySide6.QtCore import QBuffer, QIODevice
@@ -9,12 +9,6 @@ from mix_browser.features.archive.domain import MixEntry, MixFormatError
 from mix_browser.features.archive.loader import MixArchiveLoader
 from mix_browser.features.archive.name_catalog import validate_mix_name_game
 from mix_browser.features.archive.type_detection import detect_content_type
-from mix_browser.features.browser.asset_preview import (
-    PaletteLibraryRule,
-    indexed_frame_image,
-    load_entry_preview,
-    load_path_preview,
-)
 from mix_browser.features.browser.directory_listing import load_directory_entries
 from mix_browser.features.browser.document_data import decode_document
 from mix_browser.features.browser.directory_operations import (
@@ -25,6 +19,10 @@ from mix_browser.features.browser.directory_operations import (
     transfer_entries as _transfer_directory_entries,
 )
 from mix_browser.features.browser.file_add import add_files_to_directory as _add_files_to_directory
+from mix_browser.features.browser.mix_archive_extraction import (
+    extract_nested_mix_entries_to_folders as _extract_nested_mix_entries_to_folders,
+    extract_mix_archives_to_folders as _extract_mix_archives_to_folders,
+)
 from mix_browser.features.browser.recursive_search import (
     ArchivePageLocation,
     DirectoryPageLocation,
@@ -106,6 +104,87 @@ class MixBrowserFeatureApplication:
         except OSError as exc:
             raise ApplicationApiError("io_error", str(exc)) from exc
 
+    # @arch mix-browser.extract-mix-archives-to-folders service | en: Extracts selected recognized container archives into same-name folders beside their sources | zh: 将识别出的容器归档解包到源文件旁的同名文件夹
+    def extract_mix_archives_to_folders(
+        self,
+        archive_paths: tuple[Path, ...],
+        destination_directory: Path,
+        *,
+        progress: Callable[[int, int], None] | None = None,
+        cancellation_requested: Callable[[], bool] | None = None,
+    ) -> dict[str, object]:
+        try:
+            return _extract_mix_archives_to_folders(
+                self._archive_loader,
+                archive_paths,
+                destination_directory,
+                progress=progress,
+                cancellation_requested=cancellation_requested,
+            )
+        except InterruptedError:
+            raise
+        except NotADirectoryError as exc:
+            raise ApplicationApiError("not_directory", str(exc)) from exc
+        except FileExistsError as exc:
+            raise ApplicationApiError("output_exists", str(exc)) from exc
+        except PermissionError as exc:
+            raise ApplicationApiError("access_denied", str(exc)) from exc
+        except MixFormatError as exc:
+            raise ApplicationApiError("invalid_mix", str(exc)) from exc
+        except ValueError as exc:
+            raise ApplicationApiError("invalid_input", str(exc)) from exc
+        except OSError as exc:
+            raise ApplicationApiError("io_error", str(exc)) from exc
+
+    # @arch mix-browser.extract-nested-mix-entries service | en: Extracts selected nested containers into same-name folders beside the backing archive | zh: 将选中的内嵌容器解包到物理归档旁的同名文件夹
+    def extract_nested_mix_entries_to_folders(
+        self,
+        archive_path: Path,
+        entry_ids: tuple[int, ...],
+        destination_directory: Path,
+        *,
+        parent_entry_ids: tuple[int, ...] = (),
+        progress: Callable[[int, int], None] | None = None,
+        cancellation_requested: Callable[[], bool] | None = None,
+    ) -> dict[str, object]:
+        try:
+            session = self._archive_loader.create_session()
+            archive = session.load(archive_path)
+            for parent_entry_id in parent_entry_ids:
+                parent_entry = next(
+                    (entry for entry in archive.entries if entry.file_id == parent_entry_id),
+                    None,
+                )
+                if parent_entry is None:
+                    raise FileNotFoundError(
+                        f"MIX parent entry 0x{parent_entry_id:08X} no longer exists."
+                    )
+                archive = session.load_nested(archive, parent_entry)
+            return _extract_nested_mix_entries_to_folders(
+                self._archive_loader,
+                archive,
+                entry_ids,
+                destination_directory,
+                progress=progress,
+                cancellation_requested=cancellation_requested,
+            )
+        except InterruptedError:
+            raise
+        except FileNotFoundError as exc:
+            raise ApplicationApiError("entry_not_found", str(exc)) from exc
+        except NotADirectoryError as exc:
+            raise ApplicationApiError("not_directory", str(exc)) from exc
+        except FileExistsError as exc:
+            raise ApplicationApiError("output_exists", str(exc)) from exc
+        except PermissionError as exc:
+            raise ApplicationApiError("access_denied", str(exc)) from exc
+        except MixFormatError as exc:
+            raise ApplicationApiError("invalid_mix", str(exc)) from exc
+        except ValueError as exc:
+            raise ApplicationApiError("invalid_input", str(exc)) from exc
+        except OSError as exc:
+            raise ApplicationApiError("io_error", str(exc)) from exc
+
     # @arch mix-browser.directory-create service | en: Creates one child filesystem directory, optionally replacing an existing item | zh: 创建子文件系统目录，并可选替换已有对象
     def create_directory(
         self,
@@ -171,12 +250,14 @@ class MixBrowserFeatureApplication:
         self,
         paths: tuple[Path, ...],
         *,
+        expected_signatures: Mapping[str, tuple[int, int]] | None = None,
         progress: Callable[[int, int], None] | None = None,
         cancellation_requested: Callable[[], bool] | None = None,
     ) -> dict[str, object]:
         try:
             return _delete_directory_entries(
                 paths,
+                expected_signatures=expected_signatures,
                 progress=progress,
                 cancellation_requested=cancellation_requested,
             )
@@ -307,6 +388,13 @@ class MixBrowserFeatureApplication:
         encoding: str | None = None,
         name_game: str | None = None,
     ) -> dict[str, object]:
+        from mix_browser.features.browser.asset_preview import (
+            PaletteLibraryRule,
+            indexed_frame_image,
+            load_entry_preview,
+            load_path_preview,
+        )
+
         name_game = self._validate_name_game(name_game)
         if palette_theater not in {"auto", "tem", "sno", "urb", "des", "lun", "ubn"}:
             raise ApplicationApiError("invalid_input", f"Unsupported theater: {palette_theater}")
@@ -359,8 +447,13 @@ class MixBrowserFeatureApplication:
         output: dict[str, object] = {
             "kind": result.kind,
             "message": result.message,
+            "preview_notice": result.preview_notice,
             "details": list(result.details),
-            "frame_count": len(result.frames),
+            "frame_count": (
+                result.voxel_model.frame_count
+                if result.voxel_model is not None
+                else len(result.frames)
+            ),
             "palette_options": [
                 {
                     "name": palette.name,
@@ -419,13 +512,20 @@ class MixBrowserFeatureApplication:
                 "colors_rgb": [list(color) for color in result.palette.colors],
             }
         if result.voxel_model is not None:
+            selected_frame = self._valid_index(
+                frame_index,
+                result.voxel_model.frame_count,
+                "frame",
+            )
             selected_palette_index = (
                 result.default_palette_index if palette_index is None else palette_index
             )
             output["model"] = {
                 "vertex_count": result.voxel_model.vertex_count,
                 "voxel_count": result.voxel_model.voxel_count,
+                "has_hva": result.voxel_model.has_hva,
             }
+            output["selected_frame"] = selected_frame
             if result.palettes:
                 selected_palette_index = self._valid_index(
                     selected_palette_index,

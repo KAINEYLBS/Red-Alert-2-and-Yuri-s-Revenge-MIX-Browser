@@ -19,8 +19,12 @@ from mix_browser import __version__
 from mix_browser.shared.versioning import format_display_version
 
 
-_PREVIOUS_RELEASE_VERSION = "1.0.0b1"
+_PREVIOUS_RELEASE_VERSION = "1.0.0"
 _RELEASE_HISTORY = (
+    (
+        "1.0.0b1",
+        "1.0.0",
+    ),
     (
         "1.0.0b0",
         "1.0.0b1",
@@ -60,32 +64,46 @@ class VersionUpdatesDialog(QDialog):
                 self.tr("Changes since {0}").format(previous_version),
                 (
                     self.tr(
-                        "Removed redundant output-device re-detection during VLC playback, fixing the audio dropouts caused by that logic while still following the system's active output device."
+                        "Added animated HVA pose previews for paired VXL models, with frame selection and an autoplay setting separate from SHP previews."
                     ),
                     self.tr(
-                        "Fixed seeking and resuming audio or video previews after playback ends."
+                        "VXL/HVA previews use model-based framing; VXL rendering is faster, and unit-palette selection is more reliable."
                     ),
                     self.tr(
-                        "With external output devices, playback may still lose its opening audio segment; uninterrupted playback is unaffected."
+                        "Choose backgrounds for image, video, and voxel previews; status text adapts for contrast, and optional asset boundaries are available for SHP, VXL/HVA, and video previews."
                     ),
                     self.tr(
-                        "Only supported file types are previewed; rapid selection changes wait briefly before starting a preview, keeping file switching responsive."
+                        "Added MIX operations to create an archive from selected items by moving or copying them, and to extract an archive into a same-name folder."
                     ),
                     self.tr(
-                        "Video previews now distinguish media preparation from a ready video that has not started playing."
+                        "File Explorer commands can create a MIX or extract supported containers in lightweight mode, and can be grouped under a submenu."
                     ),
                     self.tr(
-                        "Startup and first folder or MIX opening are faster; the preview surface is prepared before the first browser tab."
+                        "Added in-app File Explorer context actions: blank space in a folder listing opens that folder; a filesystem item or tab opens its containing folder with the target selected."
                     ),
                     self.tr(
-                        "Fixed inconsistent widget styling between source and packaged builds, and corrected rounded corners in progress windows."
-                    ),
-                    self.tr("Windows file-handler status messages are clearer."),
-                    self.tr(
-                        "Preferences, imported palettes, the optional community database, and persistent default-app samples now live under the portable user-data folder beside the executable."
+                        "MIX entry previews now use detected content types, so supported files can preview even when their stored filename extension is misleading."
                     ),
                     self.tr(
-                        "Version 1.0.0 reads data only from user-data and does not import older files automatically. Before first launch, copy these items from beside the old executable to beside the new executable: RA2AYRMB.ini -> user-data/RA2AYRMB.ini; user-palettes/ -> user-data/user-palettes/; name-sources/ -> user-data/name-sources/; system-integration/ -> user-data/system-integration/. For future updates, copy the entire user-data/ folder."
+                        "Unified table row selection and hover styles across the application; status colors remain readable in normal, hovered, and selected rows, and table headers are resizable and fill the available width by default."
+                    ),
+                    self.tr(
+                        "Browser filtering recalculates alternating row backgrounds from visible rows and restores a temporarily hidden selection to view when its filter is re-enabled."
+                    ),
+                    self.tr(
+                        "Browser and search tables support secondary sorting with Shift-click; sorting keeps selected rows selected and visible."
+                    ),
+                    self.tr(
+                        "Press Enter to open the current table row, just like double-click; Enter does nothing when multiple rows are selected."
+                    ),
+                    self.tr(
+                        "Added an in-app interaction guide for less-visible actions; detailed sorting instructions are in the ? button of each table header."
+                    ),
+                    self.tr(
+                        "Lightweight archive dialogs show per-item validation, let users edit MIX item names, and can be configured to appear only when conflicts or errors need attention."
+                    ),
+                    self.tr(
+                        "Archive creation and extraction are available through the CLI and MCP interfaces as well as the desktop UI."
                     ),
                 ),
             )
@@ -153,11 +171,50 @@ class VersionUpdatesDialog(QDialog):
                 format_display_version(start_version),
                 format_display_version(end_version),
             )
-            items = f"<li>{escape(self.tr('Resolved some issues.'))}</li>"
+            items = "".join(
+                f"<li>{escape(note)}</li>"
+                for note in self._release_history_notes(end_version)
+            )
             sections.append(f"<h3>{escape(heading)}</h3><ul>{items}</ul>")
         browser.setHtml("".join(sections))
         layout.addWidget(browser, 1)
         return page
+
+    def _release_history_notes(self, end_version: str) -> tuple[str, ...]:
+        if end_version == "1.0.0b1":
+            return (self.tr("Resolved some issues."),)
+        if end_version == "1.0.0":
+            return (
+                self.tr(
+                    "Removed redundant output-device re-detection during VLC playback, fixing the audio dropouts caused by that logic while still following the system's active output device."
+                ),
+                self.tr(
+                    "Fixed seeking and resuming audio or video previews after playback ends."
+                ),
+                self.tr(
+                    "With external output devices, playback may still lose its opening audio segment; uninterrupted playback is unaffected."
+                ),
+                self.tr(
+                    "Only supported file types are previewed; rapid selection changes wait briefly before starting a preview, keeping file switching responsive."
+                ),
+                self.tr(
+                    "Video previews now distinguish media preparation from a ready video that has not started playing."
+                ),
+                self.tr(
+                    "Startup and first folder or MIX opening are faster; the preview surface is prepared before the first browser tab."
+                ),
+                self.tr(
+                    "Fixed inconsistent widget styling between source and packaged builds, and corrected rounded corners in progress windows."
+                ),
+                self.tr("Windows file-handler status messages are clearer."),
+                self.tr(
+                    "Preferences, imported palettes, the optional community database, and persistent default-app samples now live under the portable user-data folder beside the executable."
+                ),
+                self.tr(
+                    "Version 1.0.0 reads data only from user-data and does not import older files automatically. Before first launch, copy these items from beside the old executable to beside the new executable: RA2AYRMB.ini -> user-data/RA2AYRMB.ini; user-palettes/ -> user-data/user-palettes/; name-sources/ -> user-data/name-sources/; system-integration/ -> user-data/system-integration/. For future updates, copy the entire user-data/ folder."
+                ),
+            )
+        return ()
 
     def _show_history(self) -> None:
         self._heading.setText(self.tr("Release history"))

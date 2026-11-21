@@ -53,15 +53,15 @@ GUI 框架：PySide6</translation>
     <message>
         <location filename="../features/browser/about_dialog.py" line="71"/>
         <source>Desktop: mix-browser
-CLI: mix-browser-cli, with structured JSON output
-MCP: mix-browser-mcp (Model Context Protocol), using local stdio
+CLI: mix-browser-cli
+MCP: mix-browser-mcp (Model Context Protocol)
 
-CLI and MCP expose directory and MIX operations, recursive search, type detection, and supported preview data.</source>
+CLI and MCP provide programmatic access to application features for automation and integration.</source>
         <translation>桌面程序：mix-browser
-CLI：mix-browser-cli，提供结构化 JSON 输出
-MCP：mix-browser-mcp（模型上下文协议），使用本地 stdio
+CLI：mix-browser-cli
+MCP：mix-browser-mcp（模型上下文协议）
 
-CLI 和 MCP 提供目录与 MIX 操作、递归搜索、类型识别及受支持的预览数据。</translation>
+CLI 和 MCP 提供程序化接口，供自动化任务与其他系统集成使用。</translation>
     </message>
 </context>
 <context>
@@ -137,6 +137,26 @@ CLI 和 MCP 提供目录与 MIX 操作、递归搜索、类型识别及受支持
 </context>
 <context>
     <name>DirectoryEntryTableModel</name>
+    <message>
+        <location filename="../features/browser/directory_model.py" line="19"/>
+        <source>Name</source>
+        <translation>名称</translation>
+    </message>
+    <message>
+        <location filename="../features/browser/directory_model.py" line="19"/>
+        <source>Type</source>
+        <translation>类型</translation>
+    </message>
+    <message>
+        <location filename="../features/browser/directory_model.py" line="19"/>
+        <source>Size</source>
+        <translation>大小</translation>
+    </message>
+    <message>
+        <location filename="../features/browser/directory_model.py" line="19"/>
+        <source>Modified</source>
+        <translation>修改时间</translation>
+    </message>
     <message>
         <location filename="../features/browser/directory_model.py" line="60"/>
         <source>Folder</source>
@@ -309,6 +329,16 @@ CLI 和 MCP 提供目录与 MIX 操作、递归搜索、类型识别及受支持
         <translation>预览时自动播放音频</translation>
     </message>
     <message>
+        <location filename="../features/browser/entry_preview.py" line="782"/>
+        <source>Automatically play HVA animations when previewed</source>
+        <translation>预览时自动播放 HVA 动画</translation>
+    </message>
+    <message>
+        <location filename="../features/browser/entry_preview.py" line="784"/>
+        <source>Auto-play HVA animations</source>
+        <translation>自动播放 HVA 动画</translation>
+    </message>
+    <message>
         <location filename="../features/browser/entry_preview.py" line="857"/>
         <source>Auto-play audio</source>
         <translation>自动播放音频</translation>
@@ -335,6 +365,42 @@ CLI 和 MCP 提供目录与 MIX 操作、递归搜索、类型识别及受支持
         <translation>色盘</translation>
     </message>
     <message>
+        <source>Background</source>
+        <translation>背景</translation>
+    </message>
+    <message>
+        <source>Checkerboard</source>
+        <translation>棋盘格</translation>
+    </message>
+    <message>
+        <source>Dark</source>
+        <translation>深色</translation>
+    </message>
+    <message>
+        <source>Light</source>
+        <translation>浅色</translation>
+    </message>
+    <message>
+        <source>Green</source>
+        <translation>绿色</translation>
+    </message>
+    <message>
+        <source>Custom color</source>
+        <translation>自选颜色</translation>
+    </message>
+    <message>
+        <source>Choose preview background color</source>
+        <translation>选择预览背景颜色</translation>
+    </message>
+    <message>
+        <source>Changes the preview background; it does not remove colors from the asset.</source>
+        <translation>此选项只更改预览背景，不会从素材中移除颜色。</translation>
+    </message>
+    <message>
+        <source>Show asset boundaries</source>
+        <translation>显示素材边缘</translation>
+    </message>
+    <message>
         <location filename="../features/browser/entry_preview.py" line="714"/>
         <source>?</source>
         <translation>?</translation>
@@ -348,6 +414,14 @@ CLI 和 MCP 提供目录与 MIX 操作、递归搜索、类型识别及受支持
         <location filename="../features/browser/entry_preview.py" line="720"/>
         <source>Palette selection help</source>
         <translation>色盘选择帮助</translation>
+    </message>
+    <message>
+        <source>Preview interactions</source>
+        <translation>预览操作说明</translation>
+    </message>
+    <message>
+        <source>Image and model previews</source>
+        <translation>图像与模型预览</translation>
     </message>
     <message>
         <location filename="../features/browser/entry_preview.py" line="735"/>
@@ -437,11 +511,6 @@ CLI 和 MCP 提供目录与 MIX 操作、递归搜索、类型识别及受支持
         <location filename="../features/browser/entry_preview.py" line="1056"/>
         <source>SHP shadow merging requires an even number of frames.</source>
         <translation>合并 SHP 阴影帧要求帧数为偶数。</translation>
-    </message>
-    <message>
-        <location filename="../features/browser/entry_preview.py" line="1066"/>
-        <source>Reset VXL view and zoom to 20%</source>
-        <translation>将 VXL 视图和缩放恢复到 20%</translation>
     </message>
     <message>
         <location filename="../features/browser/entry_preview.py" line="1067"/>
@@ -907,6 +976,58 @@ CLI 和 MCP 提供目录与 MIX 操作、递归搜索、类型识别及受支持
         <translation>VXL 模型 | {0:,} 个体素</translation>
     </message>
     <message>
+        <source>The HVA header is invalid.</source>
+        <translation>HVA 文件头无效。</translation>
+    </message>
+    <message>
+        <source>The HVA frame or limb count exceeds the preview limit.</source>
+        <translation>HVA 帧数或部件数超过预览限制。</translation>
+    </message>
+    <message>
+        <source>The HVA transform table is incomplete or too large.</source>
+        <translation>HVA 变换表不完整或过大。</translation>
+    </message>
+    <message>
+        <source>The HVA limb names are invalid or duplicated.</source>
+        <translation>HVA 部件名称无效或重复。</translation>
+    </message>
+    <message>
+        <source>An HVA transform contains invalid values.</source>
+        <translation>HVA 变换包含无效值。</translation>
+    </message>
+    <message>
+        <source>An HVA transform is not invertible.</source>
+        <translation>HVA 变换矩阵不可逆。</translation>
+    </message>
+    <message>
+        <source>The HVA limb names do not match the VXL model.</source>
+        <translation>HVA 部件名称与 VXL 模型不匹配。</translation>
+    </message>
+    <message>
+        <source>A matching VXL model was not found in the same source as this HVA file.</source>
+        <translation>在此 HVA 文件的相同来源中找不到同名 VXL 模型。</translation>
+    </message>
+    <message>
+        <source>No matching HVA file was found or could be read; showing static VXL geometry.</source>
+        <translation>找不到匹配的 HVA 文件或无法读取，将显示静态 VXL 几何。</translation>
+    </message>
+    <message>
+        <source>The HVA file is too large or could not be read.</source>
+        <translation>HVA 文件过大或无法读取。</translation>
+    </message>
+    <message>
+        <source>The HVA file is too large or could not be read; showing static VXL geometry.</source>
+        <translation>HVA 文件过大或无法读取，将显示静态 VXL 几何。</translation>
+    </message>
+    <message>
+        <source>The matching HVA could not be applied ({0}); showing static VXL geometry.</source>
+        <translation>无法应用匹配的 HVA（{0}），将显示静态 VXL 几何。</translation>
+    </message>
+    <message>
+        <source>HVA pose preview (paired VXL) | {0:,} voxels | {1:,} frames</source>
+        <translation>HVA 姿态预览（配对 VXL） | {0:,} 个体素 | {1:,} 帧</translation>
+    </message>
+    <message>
         <location filename="../features/browser/asset_preview.py" line="1132"/>
         <source>The {0} file is too large for the in-memory media preview or could not be read.</source>
         <translation>{0} 文件过大，无法在内存中预览，或无法读取。</translation>
@@ -975,8 +1096,8 @@ CLI 和 MCP 提供目录与 MIX 操作、递归搜索、类型识别及受支持
     </message>
     <message>
         <location filename="../features/browser/entry_preview.py" line="1330"/>
-        <source>Reset VXL view to its default size, fitting the preview area</source>
-        <translation>将 VXL 视图恢复到默认大小，并适配预览区域</translation>
+        <source>Reset VXL view to native scale</source>
+        <translation>将 VXL 视图恢复到原生比例</translation>
     </message>
     <message>
         <location filename="../features/browser/entry_preview.py" line="1336"/>
@@ -1198,8 +1319,112 @@ CLI 和 MCP 提供目录与 MIX 操作、递归搜索、类型识别及受支持
     </message>
     <message>
         <location filename="../features/browser/window.py" line="2008"/>
-        <source>Drop local .pal files to copy them into the library with a blank regex rule.</source>
-        <translation>将本地 .pal 文件拖入即可复制到色盘库，正则规则初始为空。</translation>
+        <source>In Preferences &gt; Palette Sources, drop local .pal files into the library to copy them with a blank regular-expression rule.</source>
+        <translation>在“首选项 &gt; 色盘来源”中，将本地 .pal 文件拖入色盘库即可复制；新规则的正则表达式初始为空。</translation>
+    </message>
+    <message>
+        <source>Files and tabs</source>
+        <translation>文件与标签页</translation>
+    </message>
+    <message>
+        <source>Press Enter or double-click a table row</source>
+        <translation>按 Enter 键或双击表格行</translation>
+    </message>
+    <message>
+        <source>Table sorting options</source>
+        <translation>表格排序选项</translation>
+    </message>
+    <message>
+        <source>For sorting and clearing details, use the ? button in the corresponding table header.</source>
+        <translation>排序和清除排序的详细说明，请查看对应表格表头中的“?”按钮。</translation>
+    </message>
+    <message>
+        <source>Open folders and MIX archives here; open other files with the system default application.</source>
+        <translation>在本程序中打开文件夹和 MIX 归档；使用系统默认应用打开其他文件。</translation>
+    </message>
+    <message>
+        <source>Right-click a tab</source>
+        <translation>右键单击标签页</translation>
+    </message>
+    <message>
+        <source>Open tab actions, including opening its location in File Explorer and closing tabs.</source>
+        <translation>打开标签页操作，例如在文件资源管理器中打开其所在位置或关闭标签页。</translation>
+    </message>
+    <message>
+        <source>Drag a tab</source>
+        <translation>拖动标签页</translation>
+    </message>
+    <message>
+        <source>Change the order of open tabs.</source>
+        <translation>调整已打开标签页的顺序。</translation>
+    </message>
+    <message>
+        <source>Ctrl-click or Shift-click rows</source>
+        <translation>按住 Ctrl 或 Shift 单击表格行</translation>
+    </message>
+    <message>
+        <source>Add or remove individual rows with Ctrl, or extend a contiguous selection with Shift.</source>
+        <translation>按住 Ctrl 单击可添加或取消单独的行，按住 Shift 单击可扩展连续行的选择范围。</translation>
+    </message>
+    <message>
+        <source>Palette library</source>
+        <translation>色盘库</translation>
+    </message>
+    <message>
+        <source>Image and model previews</source>
+        <translation>图像与模型预览</translation>
+    </message>
+    <message>
+        <source>Use the mouse wheel over an image or model</source>
+        <translation>在图像或模型上滚动鼠标滚轮</translation>
+    </message>
+    <message>
+        <source>Zoom the preview around the pointer.</source>
+        <translation>以指针位置为中心缩放预览。</translation>
+    </message>
+    <message>
+        <source>Drag an image with the left mouse button</source>
+        <translation>按住鼠标左键拖动图像</translation>
+    </message>
+    <message>
+        <source>Move a zoomed image within the preview area.</source>
+        <translation>在预览区域内移动已放大的图像。</translation>
+    </message>
+    <message>
+        <source>Drag a voxel model with the left mouse button</source>
+        <translation>按住鼠标左键拖动体素模型</translation>
+    </message>
+    <message>
+        <source>Rotate a VXL or HVA model.</source>
+        <translation>旋转 VXL 或 HVA 模型。</translation>
+    </message>
+    <message>
+        <source>Drag a voxel model with the middle or right mouse button</source>
+        <translation>按住鼠标中键或右键拖动体素模型</translation>
+    </message>
+    <message>
+        <source>Move a VXL or HVA model within the preview area.</source>
+        <translation>在预览区域内移动 VXL 或 HVA 模型。</translation>
+    </message>
+    <message>
+        <source>Table sorting</source>
+        <translation>表格排序</translation>
+    </message>
+    <message>
+        <source>Tables</source>
+        <translation>表格</translation>
+    </message>
+    <message>
+        <source>Keyboard shortcuts</source>
+        <translation>键盘快捷键</translation>
+    </message>
+    <message>
+        <source>Interaction guide</source>
+        <translation>交互指南</translation>
+    </message>
+    <message>
+        <source>Interaction Guide...</source>
+        <translation>交互指南...</translation>
     </message>
     <message>
         <location filename="../features/browser/window.py" line="2195"/>
@@ -1307,6 +1532,144 @@ CLI 和 MCP 提供目录与 MIX 操作、递归搜索、类型识别及受支持
         <location filename="../features/browser/window.py" line="2233"/>
         <source>Add Files Here...</source>
         <translation>在此处添加文件...</translation>
+    </message>
+    <message>
+        <source>Extract selected {0} into same-name folder(s) beside the outer archive</source>
+        <translation>将所选 {0} 解包到外层归档旁的同名文件夹</translation>
+    </message>
+    <message>
+        <source>Extract selected {0} into same-name folder(s) here</source>
+        <translation>在此处将所选 {0} 解包到同名文件夹</translation>
+    </message>
+    <message>
+        <source>containers</source>
+        <translation>容器</translation>
+    </message>
+    <message>
+        <source>Create MIX here and copy selected items...</source>
+        <translation>在此处新建 MIX 并复制选中项...</translation>
+    </message>
+    <message>
+        <source>Create MIX here and move selected items...</source>
+        <translation>在此处新建 MIX 并移动选中项...</translation>
+    </message>
+    <message>
+        <source>Create MIX from Selected Items</source>
+        <translation>从选中项创建 MIX</translation>
+    </message>
+    <message>
+        <source>New MIX name:</source>
+        <translation>新 MIX 名称：</translation>
+    </message>
+    <message>
+        <source>Creating {0} and moving {1} selected file(s)...</source>
+        <translation>正在创建 {0} 并移动选中的 {1} 个文件...</translation>
+    </message>
+    <message>
+        <source>Creating {0} and copying {1} selected file(s)...</source>
+        <translation>正在创建 {0} 并复制选中的 {1} 个文件...</translation>
+    </message>
+    <message>
+        <source>Creating MIX archive</source>
+        <translation>正在创建 MIX 归档</translation>
+    </message>
+    <message>
+        <source>Creating nested MIX archive</source>
+        <translation>正在创建内嵌 MIX 归档</translation>
+    </message>
+    <message>
+        <source>Creating nested MIX {0} and moving {1} selected item(s)...</source>
+        <translation>正在创建内嵌 MIX {0} 并移动选中的 {1} 个项目...</translation>
+    </message>
+    <message>
+        <source>Creating nested MIX {0} and copying {1} selected item(s)...</source>
+        <translation>正在创建内嵌 MIX {0} 并复制选中的 {1} 个项目...</translation>
+    </message>
+    <message>
+        <source>Created nested MIX {0} and moved {1} selected item(s) in {2}.</source>
+        <translation>已在 {2} 中创建内嵌 MIX {0} 并移动了 {1} 个选中项目。</translation>
+    </message>
+    <message>
+        <source>Created nested MIX {0} and copied {1} selected item(s) in {2}.</source>
+        <translation>已在 {2} 中创建内嵌 MIX {0} 并复制了 {1} 个选中项目。</translation>
+    </message>
+    <message>
+        <source>The nested MIX was created, but some open archive views could not be refreshed. Reopen the archive to see the changes.</source>
+        <translation>内嵌 MIX 已创建，但部分已打开的归档视图未能刷新。重新打开归档以查看更改。</translation>
+    </message>
+    <message>
+        <source>MIX creation cancelled.</source>
+        <translation>已取消创建 MIX。</translation>
+    </message>
+    <message>
+        <source>The MIX archive could not be created.</source>
+        <translation>无法创建 MIX 归档。</translation>
+    </message>
+    <message>
+        <source>Could not create MIX archive: {0}</source>
+        <translation>无法创建 MIX 归档：{0}</translation>
+    </message>
+    <message>
+        <source>Created MIX archive {0} with {1} copied file(s).</source>
+        <translation>已创建 MIX 归档 {0}，并复制了 {1} 个文件。</translation>
+    </message>
+    <message>
+        <source>Created MIX archive {0} and moved {1} file(s).</source>
+        <translation>已创建 MIX 归档 {0}，并移动了 {1} 个文件。</translation>
+    </message>
+    <message>
+        <source>Created MIX archive {0}; source removal was cancelled and {1} file(s) remain.</source>
+        <translation>已创建 MIX 归档 {0}；源文件移除已取消，仍有 {1} 个文件保留。</translation>
+    </message>
+    <message>
+        <source>Created MIX archive {0}, but source removal was incomplete: {1}</source>
+        <translation>已创建 MIX 归档 {0}，但未能完成源文件移除：{1}</translation>
+    </message>
+    <message>
+        <source>Created MIX archive {0}; source files remain.</source>
+        <translation>已创建 MIX 归档 {0}；源文件仍保留。</translation>
+    </message>
+    <message>
+        <source>Cannot Extract Containers</source>
+        <translation>无法解包容器</translation>
+    </message>
+    <message>
+        <source>Selected containers would create folders with duplicate names.</source>
+        <translation>所选容器会创建重名文件夹。</translation>
+    </message>
+    <message>
+        <source>A same-name output folder already exists:
+{0}</source>
+        <translation>同名目标文件夹已存在：
+{0}</translation>
+    </message>
+    <message>
+        <source>Extracting selected {0} into same-name folders...</source>
+        <translation>正在将所选 {0} 解包到同名文件夹...</translation>
+    </message>
+    <message>
+        <source>Extracting {0}</source>
+        <translation>正在解包 {0}</translation>
+    </message>
+    <message>
+        <source>Container extraction cancelled.</source>
+        <translation>已取消解包容器。</translation>
+    </message>
+    <message>
+        <source>The selected containers could not be extracted.</source>
+        <translation>无法解包所选容器。</translation>
+    </message>
+    <message>
+        <source>Could not extract selected containers: {0}</source>
+        <translation>无法解包所选容器：{0}</translation>
+    </message>
+    <message>
+        <source>No folders were created.</source>
+        <translation>未创建文件夹。</translation>
+    </message>
+    <message>
+        <source>Extracted {0} file(s) from {1} selected container(s) into same-name folders.</source>
+        <translation>已将所选 {1} 个容器中的 {0} 个文件解包到同名文件夹。</translation>
     </message>
     <message>
         <location filename="../features/browser/window.py" line="2235"/>
@@ -1510,6 +1873,24 @@ CLI 和 MCP 提供目录与 MIX 操作、递归搜索、类型识别及受支持
         <location filename="../features/browser/window.py" line="2858"/>
         <source>Open with system default</source>
         <translation>使用系统默认程序打开</translation>
+    </message>
+    <message>
+        <source>Open in File Explorer</source>
+        <translation>在文件资源管理器中打开</translation>
+    </message>
+    <message>
+        <source>Only filesystem items have a containing folder in File Explorer.</source>
+        <translation>只有文件系统项目才有可在文件资源管理器中打开的所在文件夹。</translation>
+    </message>
+    <message>
+        <source>Unable to Open in File Explorer</source>
+        <translation>无法在文件资源管理器中打开</translation>
+    </message>
+    <message>
+        <source>Could not open or select this location in File Explorer:
+{0}</source>
+        <translation>无法在文件资源管理器中打开此位置或选中目标：
+{0}</translation>
     </message>
     <message>
         <location filename="../features/browser/window.py" line="2921"/>
@@ -1762,8 +2143,8 @@ CLI 和 MCP 提供目录与 MIX 操作、递归搜索、类型识别及受支持
     <message>
         <location filename="../features/browser/window.py" line="3344"/>
         <location filename="../features/browser/window.py" line="4612"/>
-        <source>{0} cannot be stored as a MIX entry name.</source>
-        <translation>{0} 不能用作 MIX 项名称。</translation>
+        <source>&quot;{0}&quot; cannot be added as an item inside this MIX archive. MIX identifies items by hashing their names, and this application currently supports printable ASCII names up to 260 characters. Names cannot start or end with whitespace or contain &lt; &gt; : &quot; / \ | ? *. Rename the file and try again.</source>
+        <translation>无法将“{0}”作为此 MIX 归档内的条目添加。MIX 通过名称哈希标识条目；本程序目前只支持由可打印 ASCII 字符组成且不超过 260 个字符的条目名。名称不能以空白字符开头或结尾，也不能包含 &lt; &gt; : &quot; / \ | ? *。请重命名文件后重试。</translation>
     </message>
     <message>
         <location filename="../features/browser/window.py" line="3364"/>
@@ -2567,6 +2948,41 @@ CLI 和 MCP 提供目录与 MIX 操作、递归搜索、类型识别及受支持
         <translation>无法打开临时文件夹：
 {0}</translation>
     </message>
+    <message>
+        <source>Click a column heading</source>
+        <translation>单击列标题</translation>
+    </message>
+    <message>
+        <source>Sort by that column. Click the same heading again to reverse the order.</source>
+        <translation>按该列排序。再次单击同一标题可反转排序方向。</translation>
+    </message>
+    <message>
+        <source>Shift-click a column heading</source>
+        <translation>按住 Shift 单击列标题</translation>
+    </message>
+    <message>
+        <source>Shift-click another heading to add or replace the secondary sort. Shift-click an active heading to reverse that key.</source>
+        <translation>按住 Shift 单击其他列标题可添加或替换次级排序；单击当前排序列标题可反转其排序方向。</translation>
+    </message>
+    <message>
+        <source>Click the clear-sort button</source>
+        <translation>单击清除排序按钮</translation>
+    </message>
+    <message>
+        <source>Remove active sorting and restore the original row order.</source>
+        <translation>清除当前排序并恢复原始行顺序。</translation>
+    </message>
+</context>
+<context>
+    <name>ApplicationSortHeaderView</name>
+    <message>
+        <source>Clear sorting</source>
+        <translation>清除排序</translation>
+    </message>
+    <message>
+        <source>Table sorting</source>
+        <translation>表格排序</translation>
+    </message>
 </context>
 <context>
     <name>NameValidationIndicator</name>
@@ -2601,6 +3017,26 @@ CLI 和 MCP 提供目录与 MIX 操作、递归搜索、类型识别及受支持
 </context>
 <context>
     <name>MixEntryTableModel</name>
+    <message>
+        <location filename="../features/browser/table_model.py" line="16"/>
+        <source>Name</source>
+        <translation>名称</translation>
+    </message>
+    <message>
+        <location filename="../features/browser/table_model.py" line="16"/>
+        <source>Type</source>
+        <translation>类型</translation>
+    </message>
+    <message>
+        <location filename="../features/browser/table_model.py" line="16"/>
+        <source>Size</source>
+        <translation>大小</translation>
+    </message>
+    <message>
+        <location filename="../features/browser/table_model.py" line="16"/>
+        <source>ID</source>
+        <translation>编号</translation>
+    </message>
     <message>
         <location filename="../features/browser/table_model.py" line="54"/>
         <source>Unknown (0x{0:08X})</source>
@@ -3426,6 +3862,11 @@ lib.pal&lt;/pre&gt;
         <translation>自动播放 SHP 动画</translation>
     </message>
     <message>
+        <location filename="../features/browser/window.py" line="2530"/>
+        <source>Auto-play HVA animations</source>
+        <translation>自动播放 HVA 动画</translation>
+    </message>
+    <message>
         <location filename="../features/browser/window.py" line="1830"/>
         <source>Auto-play audio</source>
         <translation>自动播放音频</translation>
@@ -3476,6 +3917,11 @@ lib.pal&lt;/pre&gt;
         <location filename="../features/browser/search_dialog.py" line="226"/>
         <source>Search names and paths (optional for fallback palette filter)</source>
         <translation>搜索名称和路径（色盘兜底筛选时可选）</translation>
+    </message>
+    <message>
+        <location filename="../features/browser/search_dialog.py" line="231"/>
+        <source>Search names and relative paths</source>
+        <translation>搜索名称和相对路径</translation>
     </message>
     <message>
         <location filename="../features/browser/search_dialog.py" line="231"/>
@@ -3584,8 +4030,8 @@ lib.pal&lt;/pre&gt;
     </message>
     <message>
         <location filename="../features/browser/search_dialog.py" line="538"/>
-        <source>Open	Double-click</source>
-        <translation>打开	双击</translation>
+        <source>Open	Enter or double-click</source>
+        <translation>打开	按 Enter 或双击</translation>
     </message>
     <message>
         <location filename="../features/browser/search_dialog.py" line="541"/>
@@ -3594,50 +4040,81 @@ lib.pal&lt;/pre&gt;
     </message>
 </context>
 <context>
+    <name>SearchResultsTableModel</name>
+    <message>
+        <location filename="../features/browser/search_dialog.py" line="52"/>
+        <source>Relative path</source>
+        <translation>相对路径</translation>
+    </message>
+    <message>
+        <location filename="../features/browser/search_dialog.py" line="52"/>
+        <source>Type</source>
+        <translation>类型</translation>
+    </message>
+</context>
+<context>
     <name>SystemIntegrationSettingsPage</name>
     <message>
-        <location filename="../features/system_integration/preferences.py" line="31"/>
+        <location filename="../features/system_integration/preferences.py" line="64"/>
         <source>Windows Explorer</source>
         <translation>Windows 资源管理器</translation>
     </message>
     <message>
-        <location filename="../features/system_integration/preferences.py" line="34"/>
+        <location filename="../features/system_integration/preferences.py" line="120"/>
+        <source>File and container integration</source>
+        <translation>文件与容器集成</translation>
+    </message>
+    <message>
+        <location filename="../features/system_integration/preferences.py" line="141"/>
+        <source>MIX creation commands</source>
+        <translation>MIX 创建命令</translation>
+    </message>
+    <message>
+        <location filename="../features/system_integration/preferences.py" line="54"/>
+        <location filename="../features/system_integration/preferences.py" line="106"/>
+        <source>Select all</source>
+        <translation>全选</translation>
+    </message>
+    <message>
+        <location filename="../features/system_integration/preferences.py" line="55"/>
+        <location filename="../features/system_integration/preferences.py" line="109"/>
+        <source>Clear all</source>
+        <translation>全不选</translation>
+    </message>
+    <message>
+        <location filename="../features/system_integration/preferences.py" line="73"/>
         <source>Add &quot;Browse with {0}&quot; to directory menus</source>
         <translation>在目录菜单中添加“使用 {0} 浏览”</translation>
     </message>
     <message>
-        <location filename="../features/system_integration/preferences.py" line="40"/>
-        <source>Add &quot;Browse with {0}&quot; to .mix file menus</source>
-        <translation>在 .mix 文件菜单中添加“使用 {0} 浏览”</translation>
-    </message>
-    <message>
-        <location filename="../features/system_integration/preferences.py" line="47"/>
+        <location filename="../features/system_integration/preferences.py" line="219"/>
         <source>Add MIX archive to the New menu</source>
         <translation>在“新建”菜单中添加 MIX 归档</translation>
     </message>
     <message>
-        <source>Container file integration</source>
-        <translation>容器文件系统集成</translation>
+        <source>Add a command to create a MIX and copy selected files *</source>
+        <translation>添加“新建 MIX 并复制所选文件”命令 *</translation>
     </message>
     <message>
-        <source>Choose which container extensions appear in the Windows context menu and register as open handlers. Windows controls the default app.</source>
-        <translation>选择要加入 Windows 右键菜单并注册为打开处理程序的容器扩展名。默认应用由 Windows 管理。</translation>
+        <source>Add a command to create a MIX and move selected files *</source>
+        <translation>添加“新建 MIX 并移动所选文件”命令 *</translation>
     </message>
     <message>
-        <source>Select all extensions</source>
-        <translation>全选扩展名</translation>
+        <source>Group file commands under one submenu</source>
+        <translation>将文件操作集中到一个二级菜单</translation>
     </message>
     <message>
-        <source>Clear all extensions</source>
-        <translation>全不选</translation>
+        <source>Explorer operation windows</source>
+        <translation>资源管理器操作窗口</translation>
     </message>
     <message>
-        <source>Select all for {0}</source>
-        <translation>全选 {0}</translation>
+        <source>Only show operation windows for items marked * when there are conflicts or errors</source>
+        <translation>仅在带 * 标记的操作发生冲突或错误时显示操作窗口</translation>
     </message>
     <message>
-        <source>Clear {0}</source>
-        <translation>清除 {0}</translation>
+        <location filename="../features/system_integration/preferences.py" line="131"/>
+        <source>Configure file commands, container browse and extraction actions, and open handlers. Windows controls the default app.</source>
+        <translation>配置文件右键命令、容器浏览与解包操作以及打开处理程序。默认应用由 Windows 管理。</translation>
     </message>
     <message>
         <source>Integration</source>
@@ -3662,6 +4139,10 @@ lib.pal&lt;/pre&gt;
     <message>
         <source>Open file handler</source>
         <translation>文件打开处理程序</translation>
+    </message>
+    <message>
+        <source>Extract to same-name folder(s) *</source>
+        <translation>解包到同名文件夹 *</translation>
     </message>
     <message>
         <source>Not applicable</source>
@@ -3896,6 +4377,11 @@ lib.pal&lt;/pre&gt;
     <name>_VoxelModelView</name>
     <message>
         <location filename="../features/browser/entry_preview.py" line="450"/>
+        <source>The VXL renderer could not be initialized.</source>
+        <translation>无法初始化 VXL 渲染器。</translation>
+    </message>
+    <message>
+        <location filename="../features/browser/entry_preview.py" line="450"/>
         <location filename="../features/browser/entry_preview.py" line="458"/>
         <source>The VXL vertex buffer could not be created.</source>
         <translation>无法创建 VXL 顶点缓冲区。</translation>
@@ -4046,8 +4532,12 @@ lib.pal&lt;/pre&gt;
         <translation>SHP 和 PCX 预览最多解码 {0:,} 像素。超过 {1} 的 SHP、PCX 和 VXL 条目无法预览。</translation>
     </message>
     <message>
-        <source>VXL previews show voxel geometry without HVA transforms or limb animation. HVA files have no standalone preview.</source>
-        <translation>VXL 预览显示体素模型几何形状，不应用 HVA 变换或部件动画。HVA 文件没有独立预览。</translation>
+        <source>Selecting a VXL previews its static geometry. Selecting an HVA previews the same-name VXL with HVA poses from the same MIX or folder; use the frame selector to inspect poses. An HVA without a valid pair cannot be previewed.</source>
+        <translation>选择 VXL 时预览其静态几何。选择 HVA 时，会将 HVA 姿态应用到同一 MIX 或目录中的同名 VXL；使用帧选择器查看不同姿态。HVA 没有有效配对时无法预览。</translation>
+    </message>
+    <message>
+        <source>HVA entries larger than 16 MiB or with more than 1,024 frames cannot be applied.</source>
+        <translation>大于 16 MiB 或超过 1,024 帧的 HVA 条目无法应用。</translation>
     </message>
     <message>
         <source>Text entries are truncated at {0}. WAV and Bink entries larger than {1} cannot be previewed.</source>
@@ -4106,6 +4596,62 @@ lib.pal&lt;/pre&gt;
     <message>
         <source>Changes since {0}</source>
         <translation>自 {0} 以来的更新</translation>
+    </message>
+    <message>
+        <source>Added animated HVA pose previews for paired VXL models, with frame selection and an autoplay setting separate from SHP previews.</source>
+        <translation>新增配对 VXL 模型的 HVA 姿态动画预览，支持选择帧，并可独立于 SHP 预览设置自动播放。</translation>
+    </message>
+    <message>
+        <source>VXL/HVA previews use model-based framing; VXL rendering is faster, and unit-palette selection is more reliable.</source>
+        <translation>VXL/HVA 预览根据模型范围取景；VXL 渲染更快，单位色盘选择也更可靠。</translation>
+    </message>
+    <message>
+        <source>Choose backgrounds for image, video, and voxel previews; status text adapts for contrast, and optional asset boundaries are available for SHP, VXL/HVA, and video previews.</source>
+        <translation>可为图像、视频和体素预览选择背景；状态文字会适配背景对比度，并可选择为 SHP、VXL/HVA 和视频预览显示素材边界。</translation>
+    </message>
+    <message>
+        <source>Added MIX operations to create an archive from selected items by moving or copying them, and to extract an archive into a same-name folder.</source>
+        <translation>新增 MIX 操作，可将选中项移动或复制到新建归档，也可将归档解包到同名文件夹。</translation>
+    </message>
+    <message>
+        <source>File Explorer commands can create a MIX or extract supported containers in lightweight mode, and can be grouped under a submenu.</source>
+        <translation>文件资源管理器命令可在轻量模式下创建 MIX 或解包支持的容器，也可集中放入二级菜单。</translation>
+    </message>
+    <message>
+        <source>Added in-app File Explorer context actions: blank space in a folder listing opens that folder; a filesystem item or tab opens its containing folder with the target selected.</source>
+        <translation>本程序新增“在文件资源管理器中打开”右键操作：目录列表空白处打开当前目录；文件系统项或标签页目标则打开其所在文件夹并选中目标。</translation>
+    </message>
+    <message>
+        <source>MIX entry previews now use detected content types, so supported files can preview even when their stored filename extension is misleading.</source>
+        <translation>MIX 条目预览现在依据识别出的内容类型判断支持情况，因此文件名扩展名不准确时，受支持的内容仍可预览。</translation>
+    </message>
+    <message>
+        <source>Unified table row selection and hover styles across the application; status colors remain readable in normal, hovered, and selected rows, and table headers are resizable and fill the available width by default.</source>
+        <translation>统一应用内表格的整行选择和悬停样式；状态颜色在普通、悬停和选中行中均保持清晰可读，表头可调整宽度并默认铺满可用区域。</translation>
+    </message>
+    <message>
+        <source>Browser filtering recalculates alternating row backgrounds from visible rows and restores a temporarily hidden selection to view when its filter is re-enabled.</source>
+        <translation>浏览器筛选会根据可见行重新计算交替底色；重新启用筛选后，暂时隐藏的选中项会恢复并滚动到可见范围。</translation>
+    </message>
+    <message>
+        <source>Browser and search tables support secondary sorting with Shift-click; sorting keeps selected rows selected and visible.</source>
+        <translation>浏览表和搜索结果表支持按住 Shift 单击表头设置次级排序；排序后仍会保留选中行并确保其可见。</translation>
+    </message>
+    <message>
+        <source>Press Enter to open the current table row, just like double-click; Enter does nothing when multiple rows are selected.</source>
+        <translation>按 Enter 可像双击一样打开当前行；多选时按 Enter 不会执行打开操作。</translation>
+    </message>
+    <message>
+        <source>Added an in-app interaction guide for less-visible actions; detailed sorting instructions are in the ? button of each table header.</source>
+        <translation>新增应用内交互指南，介绍不易发现的操作；排序的详细说明可通过各表格表头中的“?”按钮查看。</translation>
+    </message>
+    <message>
+        <source>Lightweight archive dialogs show per-item validation, let users edit MIX item names, and can be configured to appear only when conflicts or errors need attention.</source>
+        <translation>轻量归档对话框会逐项显示校验结果，允许编辑 MIX 条目名称，并可设置为仅在需要处理冲突或错误时弹出。</translation>
+    </message>
+    <message>
+        <source>Archive creation and extraction are available through the CLI and MCP interfaces as well as the desktop UI.</source>
+        <translation>除桌面界面外，也可通过 CLI 和 MCP 接口创建及解包归档。</translation>
     </message>
     <message>
         <source>Removed redundant output-device re-detection during VLC playback, fixing the audio dropouts caused by that logic while still following the system's active output device.</source>
@@ -4177,11 +4723,285 @@ lib.pal&lt;/pre&gt;
     </message>
 </context>
 <context>
+    <name>_OperationFileModel</name>
+    <message>
+        <source>Click the pencil icon or double-click a MIX item name to edit it.</source>
+        <translation>点击铅笔图标或双击 MIX 条目名称即可编辑。</translation>
+    </message>
+</context>
+<context>
+    <name>ShellBasicOperationDialog</name>
+    <message>
+        <source>Quick fill:</source>
+        <translation>快速填充：</translation>
+    </message>
+    <message>
+        <source>RA2: expand30</source>
+        <translation>RA2：expand30</translation>
+    </message>
+    <message>
+        <source>YR: expandmd30</source>
+        <translation>YR：expandmd30</translation>
+    </message>
+    <message>
+        <source>RA2 uses expand##.mix; Yuri's Revenge uses expandmd##.mix. The engine loads numbered expansion MIX archives from 99 down to 00. Higher numbers mount earlier and take priority when member names collide.</source>
+        <translation>RA2 使用 expand##.mix，尤里的复仇使用 expandmd##.mix。引擎按 99 到 00 加载编号扩展 MIX；编号越大越早挂载，同名成员的优先级越高。</translation>
+    </message>
+    <message>
+        <source>MIX File Operation</source>
+        <translation>MIX 文件操作</translation>
+    </message>
+    <message>
+        <source>Windows did not pass any selected files to the operation.</source>
+        <translation>Windows 没有向操作传入选中的文件。</translation>
+    </message>
+    <message>
+        <source>MIX item name</source>
+        <translation>MIX 条目名称</translation>
+    </message>
+    <message>
+        <source>Click the pencil icon or double-click a MIX item name to edit it.</source>
+        <translation>点击铅笔图标或双击 MIX 条目名称即可编辑。</translation>
+    </message>
+    <message>
+        <source>Edit MIX item name</source>
+        <translation>编辑 MIX 条目名称</translation>
+    </message>
+    <message>
+        <source>Edit</source>
+        <translation>编辑</translation>
+    </message>
+    <message>
+        <source>Only show this window when there are conflicts or errors</source>
+        <translation>仅在有冲突或错误时弹出此窗口</translation>
+    </message>
+    <message>
+        <source>Selected file</source>
+        <translation>选中文件</translation>
+    </message>
+    <message>
+        <source>Output</source>
+        <translation>输出位置</translation>
+    </message>
+    <message>
+        <source>Validation</source>
+        <translation>校验结果</translation>
+    </message>
+    <message>
+        <source>Create MIX</source>
+        <translation>创建 MIX</translation>
+    </message>
+    <message>
+        <source>Extract</source>
+        <translation>解包</translation>
+    </message>
+    <message>
+        <source>Selected containers will be extracted into same-name folders beside the source files. Existing folders are never replaced.</source>
+        <translation>所选容器将解包到源文件旁的同名文件夹中。现有文件夹不会被替换。</translation>
+    </message>
+    <message>
+        <source>Selected files will become items inside a new MIX archive. MIX uses hashed item names; this application supports printable ASCII names up to 260 characters.</source>
+        <translation>选中文件将作为条目写入新的 MIX 归档。MIX 使用名称哈希标识条目；本程序支持可打印 ASCII 字符组成且不超过 260 个字符的名称。</translation>
+    </message>
+    <message>
+        <source>New MIX name:</source>
+        <translation>新 MIX 名称：</translation>
+    </message>
+    <message>
+        <source>Location:</source>
+        <translation>位置：</translation>
+    </message>
+    <message>
+        <source>Selected files have duplicate names.</source>
+        <translation>所选文件中有重名项目。</translation>
+    </message>
+    <message>
+        <source>Name conflicts with the reserved MIX name database ID.</source>
+        <translation>名称与 MIX 内置名称数据库的保留 ID 冲突。</translation>
+    </message>
+    <message>
+        <source>Selected names resolve to the same MIX item ID.</source>
+        <translation>所选名称会映射到相同的 MIX 条目 ID。</translation>
+    </message>
+    <message>
+        <source>Selected files must be in the same folder.</source>
+        <translation>所选文件必须位于同一文件夹。</translation>
+    </message>
+    <message>
+        <source>File is unavailable.</source>
+        <translation>文件不可用。</translation>
+    </message>
+    <message>
+        <source>Only regular files can be added to a MIX archive.</source>
+        <translation>只有普通文件可以添加到 MIX 归档。</translation>
+    </message>
+    <message>
+        <source>Name must use printable ASCII characters, be at most 260 characters, and contain no unsupported symbols or surrounding spaces.</source>
+        <translation>名称必须仅由可打印 ASCII 字符组成，最多 260 个字符，不能含不支持的符号或首尾空格。</translation>
+    </message>
+    <message>
+        <source>Name is reserved for the embedded MIX name database.</source>
+        <translation>此名称保留给 MIX 内置名称数据库。</translation>
+    </message>
+    <message>
+        <source>Ready</source>
+        <translation>符合要求</translation>
+    </message>
+    <message>
+        <source>Selected containers produce the same folder name.</source>
+        <translation>所选容器会生成同名文件夹。</translation>
+    </message>
+    <message>
+        <source>Selected containers must be in the same folder.</source>
+        <translation>所选容器必须位于同一文件夹。</translation>
+    </message>
+    <message>
+        <source>File is not a supported MIX-family container.</source>
+        <translation>此文件不是受支持的 MIX 系列容器。</translation>
+    </message>
+    <message>
+        <source>Container file is unavailable.</source>
+        <translation>容器文件不可用。</translation>
+    </message>
+    <message>
+        <source>Only container files can be extracted.</source>
+        <translation>只能解包容器文件。</translation>
+    </message>
+    <message>
+        <source>Container name cannot be used for an output folder.</source>
+        <translation>容器名称不能用作输出文件夹名称。</translation>
+    </message>
+    <message>
+        <source>Output folder already exists.</source>
+        <translation>输出文件夹已存在。</translation>
+    </message>
+    <message>
+        <source>No files were selected.</source>
+        <translation>没有选中文件。</translation>
+    </message>
+    <message>
+        <source>Review the highlighted items before continuing.</source>
+        <translation>请先检查标红项目，再继续操作。</translation>
+    </message>
+    <message>
+        <source>The output file exists; confirmation will be required to replace it.</source>
+        <translation>输出文件已存在，继续前会询问是否替换。</translation>
+    </message>
+    <message>
+        <source>All selected items are ready.</source>
+        <translation>所有选中项目均符合要求。</translation>
+    </message>
+    <message>
+        <source>Enter a MIX archive name.</source>
+        <translation>请输入 MIX 归档名称。</translation>
+    </message>
+    <message>
+        <source>Enter a valid .mix file name.</source>
+        <translation>请输入有效的 .mix 文件名。</translation>
+    </message>
+    <message>
+        <source>The output path cannot be resolved.</source>
+        <translation>无法解析输出路径。</translation>
+    </message>
+    <message>
+        <source>The output archive cannot replace a selected source file.</source>
+        <translation>输出归档不能替换所选源文件。</translation>
+    </message>
+    <message>
+        <source>The output path is not a regular file.</source>
+        <translation>输出路径不是普通文件。</translation>
+    </message>
+    <message>
+        <source>Replace Existing MIX Archive?</source>
+        <translation>替换现有 MIX 归档？</translation>
+    </message>
+    <message>
+        <source>A file named &quot;{0}&quot; already exists. Replace it?</source>
+        <translation>名为“{0}”的文件已存在。要替换它吗？</translation>
+    </message>
+    <message>
+        <source>Creating MIX Archive</source>
+        <translation>正在创建 MIX 归档</translation>
+    </message>
+    <message>
+        <source>Creating {0} from {1} selected file(s)...</source>
+        <translation>正在从 {1} 个选中文件创建 {0}...</translation>
+    </message>
+    <message>
+        <source>Extracting Containers</source>
+        <translation>正在解包容器</translation>
+    </message>
+    <message>
+        <source>Extracting {0} selected container(s)...</source>
+        <translation>正在解包 {0} 个选中容器...</translation>
+    </message>
+    <message>
+        <source>Working... Cancel from the progress window to stop safely.</source>
+        <translation>正在处理...请在进度窗口中取消，以安全停止操作。</translation>
+    </message>
+    <message>
+        <source>Completed.</source>
+        <translation>已完成。</translation>
+    </message>
+    <message>
+        <source>Cancellation requested; waiting for a safe stop...</source>
+        <translation>已请求取消，正在等待安全停止...</translation>
+    </message>
+    <message>
+        <source>The shared progress window is unavailable; the operation could not be started.</source>
+        <translation>共享进度窗口不可用，操作无法启动。</translation>
+    </message>
+    <message>
+        <source>Operation cancelled.</source>
+        <translation>操作已取消。</translation>
+    </message>
+    <message>
+        <source>Operation failed: {0}</source>
+        <translation>操作失败：{0}</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <source>Extracted {0} file(s) into {1} folder(s).</source>
+        <translation>已将 {0} 个文件解包到 {1} 个文件夹。</translation>
+    </message>
+    <message>
+        <source>Created {0} and moved {1} file(s).</source>
+        <translation>已创建 {0} 并移动 {1} 个文件。</translation>
+    </message>
+    <message>
+        <source>Created {0}, but some source files could not be moved: {1}</source>
+        <translation>已创建 {0}，但部分源文件无法移动：{1}</translation>
+    </message>
+    <message>
+        <source>Created {0}; source removal was cancelled after removing {1} file(s), and {2} remain.</source>
+        <translation>已创建 {0}；源文件删除操作在移除 {1} 个文件后取消，还有 {2} 个文件保留。</translation>
+    </message>
+    <message>
+        <source>Created {0} with {1} file(s); source files were kept.</source>
+        <translation>已创建包含 {1} 个文件的 {0}；源文件已保留。</translation>
+    </message>
+</context>
+<context>
     <name>WindowsShellRegistry</name>
     <message>
         <location filename="../features/system_integration/windows_registry.py" line="258"/>
         <source>Browse with {0}</source>
         <translation>使用 {0} 浏览</translation>
+    </message>
+    <message>
+        <source>Create MIX here and copy selected items...</source>
+        <translation>在此处新建 MIX 并复制选中项...</translation>
+    </message>
+    <message>
+        <source>Create MIX here and move selected items...</source>
+        <translation>在此处新建 MIX 并移动选中项...</translation>
+    </message>
+    <message>
+        <source>Extract selected containers into same-name folders...</source>
+        <translation>将选中容器解包到同名文件夹...</translation>
     </message>
 </context>
 </TS>

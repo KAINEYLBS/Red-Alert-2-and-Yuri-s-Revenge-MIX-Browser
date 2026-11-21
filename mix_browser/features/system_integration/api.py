@@ -19,9 +19,17 @@ _INTEGRATION_KEYS = (
     "mix_file_association",
     "container_file_associations",
     "container_file_context_menus",
+    "container_file_extract_context_menus",
+    "file_context_mix_copy",
+    "file_context_mix_move",
+    "context_menu_submenu",
 )
 _EXTENSION_MAP_KEYS = frozenset(
-    {"container_file_associations", "container_file_context_menus"}
+    {
+        "container_file_associations",
+        "container_file_context_menus",
+        "container_file_extract_context_menus",
+    }
 )
 
 
@@ -30,8 +38,21 @@ class SystemIntegrationApplication:
     def __init__(self) -> None:
         command = desktop_launch_command()
         command_line = subprocess.list2cmdline([*command, "--open-path"])
+        # %1 anchors the operation to the Explorer window whose full selection is queried.
+        shell_operation_commands = {
+            key: subprocess.list2cmdline(
+                [*command, "--basic-mode", operation]
+            )
+            + ' "%1"'
+            for key, operation in (
+                ("pack_copy", "pack-copy"),
+                ("pack_move", "pack-move"),
+                ("extract_containers", "extract-containers"),
+            )
+        }
         self._registry = WindowsShellRegistry(
-            command_line + ' "%1"'
+            command_line + ' "%1"',
+            shell_operation_commands=shell_operation_commands,
         )
 
     def get_state(self) -> dict[str, object]:
@@ -52,10 +73,18 @@ class SystemIntegrationApplication:
         mix_file_association: bool | None = None,
         container_file_associations: dict[str, bool] | None = None,
         container_file_context_menus: dict[str, bool] | None = None,
+        file_context_mix_copy: bool | None = None,
+        file_context_mix_move: bool | None = None,
+        container_file_extract_context_menus: dict[str, bool] | None = None,
+        context_menu_submenu: bool | None = None,
     ) -> dict[str, object]:
         for key, value in (
             ("container_file_associations", container_file_associations),
             ("container_file_context_menus", container_file_context_menus),
+            (
+                "container_file_extract_context_menus",
+                container_file_extract_context_menus,
+            ),
         ):
             if value is None:
                 continue
@@ -72,8 +101,10 @@ class SystemIntegrationApplication:
                 )
             if key == "container_file_associations":
                 container_file_associations = normalized
-            else:
+            elif key == "container_file_context_menus":
                 container_file_context_menus = normalized
+            else:
+                container_file_extract_context_menus = normalized
         requested = {
             "directory_context_menu": directory_context_menu,
             "mix_context_menu": mix_context_menu,
@@ -81,6 +112,10 @@ class SystemIntegrationApplication:
             "mix_file_association": mix_file_association,
             "container_file_associations": container_file_associations,
             "container_file_context_menus": container_file_context_menus,
+            "file_context_mix_copy": file_context_mix_copy,
+            "file_context_mix_move": file_context_mix_move,
+            "container_file_extract_context_menus": container_file_extract_context_menus,
+            "context_menu_submenu": context_menu_submenu,
         }
         if not any(value is not None for value in requested.values()):
             raise ApplicationApiError(
@@ -102,7 +137,11 @@ class SystemIntegrationApplication:
                 refresh_key = (
                     "container_file_association_needs_refresh"
                     if key == "container_file_associations"
-                    else "container_file_context_menu_needs_refresh"
+                    else (
+                        "container_file_extract_context_menu_needs_refresh"
+                        if key == "container_file_extract_context_menus"
+                        else "container_file_context_menu_needs_refresh"
+                    )
                 )
                 refresh_values = previous[refresh_key]
                 differs = any(
@@ -114,12 +153,19 @@ class SystemIntegrationApplication:
                     for extension, registered in value.items()
                 )
             else:
-                differs = bool(value) != bool(previous[key]) or (
-                    bool(value)
-                    and bool(previous.get(f"{key}_needs_refresh"))
+                differs = bool(value) != bool(previous[key]) or bool(
+                    previous.get(f"{key}_needs_refresh")
                 )
             if differs:
                 changed[key] = value
+                if key == "context_menu_submenu":
+                    for dependent_key in (
+                        "file_context_mix_copy",
+                        "file_context_mix_move",
+                        "container_file_context_menus",
+                        "container_file_extract_context_menus",
+                    ):
+                        changed[dependent_key] = previous[dependent_key]
         if not changed:
             return previous
         try:

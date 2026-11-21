@@ -2,7 +2,7 @@
 
 **Red Alert 2 and Yuri's Revenge MIX Browser** is a desktop application for browsing and managing Westwood MIX archives alongside ordinary game files and folders.
 
-Version: **1.0.0**
+Version: **1.1.0**
 
 README: English | [简体中文](README.zh-CN.md)  
 Interface languages: English and Simplified Chinese
@@ -28,15 +28,19 @@ The desktop app's **Help > Preview Support...** dialog lists these formats and l
 | SHP animations | `.shp`, `.shp-ts` |
 | PCX images | `.pcx`, `.mmp`* |
 | Palettes | `.pal` |
-| Voxel models | `.vxl` |
+| Voxel models | `.vxl`, `.hva` |
 | XCC name data | `.dat` |
 | Audio | `.wav` |
 | Video | `.bik`, `.bk2`, `.bink` |
 | Browsable MIX containers | `.mix`, `.mmx`, `.yro` |
 
-`*` An `.mmp` file is previewed as PCX only when its contents have a valid PCX signature. `.dat` preview is limited to recognized XCC MIX name databases. PAL previews accept Westwood raw, JASC, and RIFF palettes. HVA files have no standalone preview; VXL previews show voxel geometry without HVA transforms or limb animation. Directories and MIX containers are browsed rather than previewed as documents.
+`*` An `.mmp` file is previewed as PCX only when its contents have a valid PCX signature. `.dat` preview is limited to recognized XCC MIX name databases. PAL previews accept Westwood raw, JASC, and RIFF palettes. Selecting a VXL previews its static geometry. Selecting an HVA previews the same-name VXL with the HVA poses from the same MIX or folder; HVA frames can be selected manually. An HVA without a valid pair cannot be previewed. Directories and MIX containers are browsed rather than previewed as documents.
 
-Preview limits: text entries are truncated at 2 MiB; DAT entries larger than 64 MiB are not previewed; SHP and PCX images are limited to 33,554,432 decoded pixels; SHP, PCX, and VXL entries larger than 64 MiB are not previewed; WAV and Bink entries larger than 128 MiB are not previewed.
+Preview limits: text entries are truncated at 2 MiB; DAT entries larger than 64 MiB are not previewed; SHP and PCX images are limited to 33,554,432 decoded pixels; SHP, PCX, and VXL entries larger than 64 MiB are not previewed; HVA entries larger than 16 MiB or with more than 1,024 frames are not applied; WAV and Bink entries larger than 128 MiB are not previewed.
+
+### VLC Playback Startup on Windows
+
+Audio and video previews use VLC. First playback may take longer while VLC initializes the media pipeline. Windows Defender real-time protection may scan VLC runtime files on first access; during a scan, the application can appear temporarily unresponsive. NVIDIA Instant Replay may also monitor VLC playback and cause a similar delay, usually less noticeably. These are possible system-side contributors, not a confirmed explanation for every delay; startup delays are typically most noticeable on first use.
 
 Game files are not included. Select an existing RA2/YR game directory in **Edit > Preferences > Palette Sources** to use its palettes and art rules for previews. The game directory is stored as a setting; its contents are read in place.
 
@@ -129,4 +133,4 @@ See [CLI and MCP documentation](docs/cli_mcp.md) for the available tools and cli
 
 Project-authored source code, documentation, and original assets (including the hand-drawn `MIX-EXE.ico`, `MIX-FILE.ico`, `MMX-FILE.ico`, and `YRO-FILE.ico` icons) are licensed under the [MIT License](LICENSE). This license does not automatically cover separately sourced datasets, game files, Qt/PySide, `python-vlc`, libVLC, FFmpeg, or their codecs. Binary-package notices are described in [third-party notices](THIRD_PARTY_NOTICES.md).
 
-The bundled XCC MIX name lists for Tiberian Dawn, Tiberian Sun, and Red Alert 2/Yuri's Revenge are identified as GPL-3.0 and include the accompanying license text. The optional CnCNet community Global MIX Database is downloaded on request from its original forum attachment and is not bundled with the repository or application releases. It also supplies the Red Alert name list. Its source states no separate license, so permission to redistribute it remains unconfirmed. The project MIT license does not cover this downloaded database. See [licensing details](docs/licensing.md) and [third-party notices](THIRD_PARTY_NOTICES.md) for more information.
+The bundled XCC MIX name lists for Tiberian Dawn, Tiberian Sun, and Red Alert 2/Yuri's Revenge are identified as GPL-3.0 and include the accompanying license text. The optional CnCNet community Global MIX Database is downloaded on request from its original forum attachment and is not bundled with the repository or application releases. It also supplies the Red Alert name list. The project MIT license applies to project-authored material and does not relicense separately sourced data. See [licensing details](docs/licensing.md) and [third-party notices](THIRD_PARTY_NOTICES.md) for more information.

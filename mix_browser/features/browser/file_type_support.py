@@ -46,6 +46,7 @@ DIRECT_PREVIEW_SUFFIXES = frozenset(
         ".shp-ts",
         ".pcx",
         ".vxl",
+        ".hva",
         ".pal",
         ".wav",
         ".bik",
@@ -63,6 +64,7 @@ DIRECT_PREVIEW_TYPES = frozenset(
         "SHP-TS",
         "PCX",
         "VXL",
+        "HVA",
         "PAL",
         "WAV",
         "BIK",
@@ -72,6 +74,7 @@ DIRECT_PREVIEW_TYPES = frozenset(
     }
 )
 DOCUMENT_PREVIEW_TYPES = frozenset({"INI", "TXT"})
+PREVIEWABLE_FILE_TYPES = DIRECT_PREVIEW_TYPES | DOCUMENT_PREVIEW_TYPES
 VIDEO_PREVIEW_TYPES = frozenset({"BIK", "BK2", "BINK"})
 AUDIO_PREVIEW_TYPES = frozenset({"WAV"})
 MEDIA_PREVIEW_TYPES = VIDEO_PREVIEW_TYPES | AUDIO_PREVIEW_TYPES
@@ -84,9 +87,11 @@ MAX_MEDIA_PREVIEW_BYTES = 128 * 1024 * 1024
 MAX_IMAGE_PREVIEW_PIXELS = 32 * 1024 * 1024
 
 
-# @arch mix-browser.previewable-file-name utility | en: Checks whether a filename extension is eligible for preview loading | zh: 检查文件扩展名是否允许进入预览加载
-def is_previewable_file_name(file_name: str) -> bool:
-    return Path(file_name).suffix.casefold() in PREVIEWABLE_FILE_SUFFIXES
+# @arch mix-browser.previewable-file utility | en: Checks whether a filename extension or recognized file type is eligible for preview loading | zh: 检查文件扩展名或已识别类型是否允许进入预览加载
+def is_previewable_file(file_name: str, file_type: str | None = None) -> bool:
+    if Path(file_name).suffix.casefold() in PREVIEWABLE_FILE_SUFFIXES:
+        return True
+    return (file_type or "").strip().upper() in PREVIEWABLE_FILE_TYPES
 
 
 def _preview_suffixes_for_types(types: frozenset[str]) -> tuple[str, ...]:
@@ -122,7 +127,7 @@ PREVIEW_FORMAT_GROUPS = (
     ),
     (
         QT_TRANSLATE_NOOP("PreviewSupportDialog", "Voxel models"),
-        _preview_suffixes_for_types(frozenset({"VXL"})),
+        _preview_suffixes_for_types(frozenset({"VXL", "HVA"})),
     ),
     (
         QT_TRANSLATE_NOOP("PreviewSupportDialog", "XCC name data"),
@@ -142,7 +147,7 @@ SUPPORTED_BROWSER_SUFFIXES = frozenset(
     suffix
     for _group_label, suffixes in PREVIEW_FORMAT_GROUPS
     for suffix in suffixes
-) | {".hva"}
+)
 
 OTHER_FILE_TYPE_FILTER = "__other__"
 NON_ADJUSTABLE_BROWSER_TYPE_FILTERS = frozenset({"Folder", "MIX"})

@@ -12,6 +12,22 @@ from mix_browser.shared.application_identity import APPLICATION_DISPLAY_NAME
 
 _DIRECTORY_VERB = r"Software\Classes\Directory\shell\RA2AYRCFRE.MIXBrowser.Browse"
 _CONTAINER_VERB_NAME = "RA2AYRCFRE.MIXBrowser.Browse"
+_CONTAINER_EXTRACT_VERB_NAME = "RA2AYRCFRE.MIXBrowser.Extract"
+_FILE_MIX_COPY_VERB = r"Software\Classes\*\shell\RA2AYRCFRE.MIXBrowser.CreateMixCopy"
+_FILE_MIX_MOVE_VERB = r"Software\Classes\*\shell\RA2AYRCFRE.MIXBrowser.CreateMixMove"
+_FILE_CONTEXT_MENU_ROOT = (
+    r"Software\Classes\*\shell\RA2AYRCFRE.MIXBrowser.ContextMenu"
+)
+_FILE_CONTEXT_MENU_COPY_VERB = _FILE_CONTEXT_MENU_ROOT + r"\shell\CreateMixCopy"
+_FILE_CONTEXT_MENU_MOVE_VERB = _FILE_CONTEXT_MENU_ROOT + r"\shell\CreateMixMove"
+_FILE_CONTEXT_MENU_BROWSE_VERB = _FILE_CONTEXT_MENU_ROOT + r"\shell\BrowseContainer"
+_FILE_CONTEXT_MENU_EXTRACT_VERB = _FILE_CONTEXT_MENU_ROOT + r"\shell\ExtractContainers"
+_CONTEXT_MENU_SETTINGS_KEY = (
+    r"Software\RA2AYRCFRE\MIXBrowser\ExplorerContextMenu"
+)
+_CONTEXT_MENU_GROUPING_VALUE = "GroupFileCommands"
+_CONTEXT_MENU_BROWSE_EXTENSIONS_VALUE = "BrowseExtensions"
+_CONTEXT_MENU_EXTRACT_EXTENSIONS_VALUE = "ExtractExtensions"
 _MIX_EXTENSION_NAME = ".mix"
 _MIX_EXTENSION = r"Software\Classes\.mix"
 _MIX_NEW_PROGID = "RA2AYRCFRE.MIXBrowser.MIX.New"
@@ -82,8 +98,14 @@ def _extension_user_choice_key(extension: str) -> str:
 
 # @arch mix-browser.windows-shell-registration adapter | en: Registers and removes per-user Windows Explorer verbs and container file capabilities | zh: 注册和移除当前用户的 Windows 资源管理器菜单项与容器文件能力
 class WindowsShellRegistry:
-    def __init__(self, open_command: str) -> None:
+    def __init__(
+        self,
+        open_command: str,
+        *,
+        shell_operation_commands: dict[str, str] | None = None,
+    ) -> None:
         self._open_command = open_command
+        self._shell_operation_commands = dict(shell_operation_commands or {})
 
     @staticmethod
     def is_supported() -> bool:
@@ -98,6 +120,18 @@ class WindowsShellRegistry:
                 "container_file_context_menus": {
                     extension: False for extension in sorted(MIX_CONTAINER_SUFFIXES)
                 },
+                "container_file_extract_context_menus": {
+                    extension: False for extension in sorted(MIX_CONTAINER_SUFFIXES)
+                },
+                "context_menu_submenu": True,
+                "context_menu_submenu_needs_refresh": False,
+                "container_file_extract_context_menu_needs_refresh": {
+                    extension: False for extension in sorted(MIX_CONTAINER_SUFFIXES)
+                },
+                "file_context_mix_copy": False,
+                "file_context_mix_copy_needs_refresh": False,
+                "file_context_mix_move": False,
+                "file_context_mix_move_needs_refresh": False,
                 "container_file_context_menu_needs_refresh": {
                     extension: False for extension in sorted(MIX_CONTAINER_SUFFIXES)
                 },
@@ -122,6 +156,7 @@ class WindowsShellRegistry:
         import winreg
 
         browse_label = self._browse_menu_label()
+        file_context_state = self._file_context_menu_state()
         container_file_associations = {
             extension: self._container_handler_is_registered(extension)
             for extension in sorted(MIX_CONTAINER_SUFFIXES)
@@ -134,25 +169,10 @@ class WindowsShellRegistry:
             extension: self._container_is_default(extension)
             for extension in sorted(MIX_CONTAINER_SUFFIXES)
         }
-        container_file_context_menus = {
-            extension: self._verb_is_registered(
-                self._container_context_verb(extension)
-            )
-            for extension in sorted(MIX_CONTAINER_SUFFIXES)
-        }
-        container_file_context_menu_needs_refresh = {
-            extension: self._verb_needs_refresh(
-                self._container_context_verb(extension),
-                browse_label,
-            )
-            for extension in sorted(MIX_CONTAINER_SUFFIXES)
-        }
         return {
             "supported": True,
+            **file_context_state,
             "directory_context_menu": self._verb_is_registered(_DIRECTORY_VERB),
-            "mix_context_menu": container_file_context_menus.get(".mix", False),
-            "container_file_context_menus": container_file_context_menus,
-            "container_file_context_menu_needs_refresh": container_file_context_menu_needs_refresh,
             "mix_new_menu": self._mix_new_menu_is_registered(),
             "mix_file_association": container_file_associations.get(".mix", False),
             "mix_is_default": container_file_is_default.get(".mix", False),
@@ -163,14 +183,570 @@ class WindowsShellRegistry:
                 _DIRECTORY_VERB,
                 browse_label,
             ),
-            "mix_context_menu_needs_refresh": container_file_context_menu_needs_refresh.get(
-                ".mix", False
-            ),
             "mix_new_menu_needs_refresh": self._mix_new_menu_needs_refresh(),
             "mix_file_association_needs_refresh": container_file_association_needs_refresh.get(
                 ".mix", False
             ),
         }
+
+    def _file_context_menu_state(self) -> dict[str, object]:
+        import winreg
+
+        hive = winreg.HKEY_CURRENT_USER
+        extensions = sorted(MIX_CONTAINER_SUFFIXES)
+        grouped = self._context_menu_grouping_enabled()
+        stored_copy = self._context_menu_bool("PackCopy")
+        stored_move = self._context_menu_bool("PackMove")
+        stored_browse = self._context_menu_extensions(
+            _CONTEXT_MENU_BROWSE_EXTENSIONS_VALUE
+        )
+        stored_extract = self._context_menu_extensions(
+            _CONTEXT_MENU_EXTRACT_EXTENSIONS_VALUE
+        )
+
+        direct_copy = self._verb_is_registered(_FILE_MIX_COPY_VERB)
+        direct_move = self._verb_is_registered(_FILE_MIX_MOVE_VERB)
+        cascade_copy = self._verb_is_registered(_FILE_CONTEXT_MENU_COPY_VERB)
+        cascade_move = self._verb_is_registered(_FILE_CONTEXT_MENU_MOVE_VERB)
+        copy_enabled = (
+            stored_copy
+            if stored_copy is not None
+            else direct_copy or cascade_copy
+        )
+        move_enabled = (
+            stored_move
+            if stored_move is not None
+            else direct_move or cascade_move
+        )
+
+        direct_browse = {
+            extension: self._verb_is_registered(
+                self._container_context_verb(extension)
+            )
+            for extension in extensions
+        }
+        direct_extract = {
+            extension: self._verb_is_registered(
+                self._container_extract_context_verb(extension)
+            )
+            for extension in extensions
+        }
+        browse_enabled = {
+            extension: (
+                extension in stored_browse
+                if stored_browse is not None
+                else direct_browse[extension]
+            )
+            for extension in extensions
+        }
+        extract_enabled = {
+            extension: (
+                extension in stored_extract
+                if stored_extract is not None
+                else direct_extract[extension]
+            )
+            for extension in extensions
+        }
+        browse_extensions = {
+            extension for extension, enabled in browse_enabled.items() if enabled
+        }
+        extract_extensions = {
+            extension for extension, enabled in extract_enabled.items() if enabled
+        }
+
+        direct_browse_needs_refresh = {
+            extension: self._verb_needs_refresh(
+                self._container_context_verb(extension),
+                self._browse_menu_label(),
+            )
+            for extension in extensions
+        }
+        direct_extract_needs_refresh = {
+            extension: self._verb_needs_refresh(
+                self._container_extract_context_verb(extension),
+                self._shell_menu_label(
+                    "Extract selected containers into same-name folders..."
+                ),
+                self._shell_operation_commands["extract_containers"],
+                multi_select=True,
+            )
+            for extension in extensions
+        }
+
+        cascade_copy_registered = cascade_copy
+        cascade_move_registered = cascade_move
+        cascade_browse_registered = self._verb_is_registered(
+            _FILE_CONTEXT_MENU_BROWSE_VERB
+        )
+        cascade_extract_registered = self._verb_is_registered(
+            _FILE_CONTEXT_MENU_EXTRACT_VERB
+        )
+        cascade_browse_needs_refresh = self._verb_needs_refresh(
+            _FILE_CONTEXT_MENU_BROWSE_VERB,
+            self._browse_menu_label(),
+            applies_to=self._extension_applies_to(browse_extensions),
+        )
+        cascade_extract_needs_refresh = self._verb_needs_refresh(
+            _FILE_CONTEXT_MENU_EXTRACT_VERB,
+            self._shell_menu_label(
+                "Extract selected containers into same-name folders..."
+            ),
+            self._shell_operation_commands["extract_containers"],
+            multi_select=True,
+            applies_to=self._extension_applies_to(extract_extensions),
+        )
+
+        parent_exists = self._key_exists(hive, _FILE_CONTEXT_MENU_ROOT)
+        parent_applies_to = (
+            None
+            if copy_enabled or move_enabled
+            else self._extension_applies_to(
+                browse_extensions | extract_extensions
+            )
+        )
+        parent_current = self._cascade_menu_is_current(
+            _FILE_CONTEXT_MENU_ROOT,
+            parent_applies_to,
+        )
+        enabled_file_commands = (
+            copy_enabled or move_enabled or browse_extensions or extract_extensions
+        )
+        direct_any = (
+            direct_copy
+            or direct_move
+            or any(direct_browse.values())
+            or any(direct_extract.values())
+        )
+        cascade_any = (
+            cascade_copy_registered
+            or cascade_move_registered
+            or cascade_browse_registered
+            or cascade_extract_registered
+        )
+
+        if grouped:
+            submenu_needs_refresh = direct_any or (
+                enabled_file_commands
+                and (
+                    not parent_current
+                    or (copy_enabled and not cascade_copy_registered)
+                    or (move_enabled and not cascade_move_registered)
+                    or (browse_extensions and not cascade_browse_registered)
+                    or (extract_extensions and not cascade_extract_registered)
+                    or (not copy_enabled and cascade_copy_registered)
+                    or (not move_enabled and cascade_move_registered)
+                    or (not browse_extensions and cascade_browse_registered)
+                    or (not extract_extensions and cascade_extract_registered)
+                    or (copy_enabled
+                        and self._verb_needs_refresh(
+                            _FILE_CONTEXT_MENU_COPY_VERB,
+                            self._shell_menu_label(
+                                "Create MIX here and copy selected items..."
+                            ),
+                            self._shell_operation_commands["pack_copy"],
+                            multi_select=True,
+                        ))
+                    or (move_enabled
+                        and self._verb_needs_refresh(
+                            _FILE_CONTEXT_MENU_MOVE_VERB,
+                            self._shell_menu_label(
+                                "Create MIX here and move selected items..."
+                            ),
+                            self._shell_operation_commands["pack_move"],
+                            multi_select=True,
+                        ))
+                    or (browse_extensions and cascade_browse_needs_refresh)
+                    or (extract_extensions and cascade_extract_needs_refresh)
+                )
+            ) or (not enabled_file_commands and (parent_exists or cascade_any))
+        else:
+            submenu_needs_refresh = parent_exists or cascade_any or any(
+                enabled_file_commands
+                and (
+                    (copy_enabled and self._verb_needs_refresh(
+                        _FILE_MIX_COPY_VERB,
+                        self._shell_menu_label(
+                            "Create MIX here and copy selected items..."
+                        ),
+                        self._shell_operation_commands["pack_copy"],
+                        multi_select=True,
+                    ))
+                    or (move_enabled and self._verb_needs_refresh(
+                        _FILE_MIX_MOVE_VERB,
+                        self._shell_menu_label(
+                            "Create MIX here and move selected items..."
+                        ),
+                        self._shell_operation_commands["pack_move"],
+                        multi_select=True,
+                    ))
+                )
+            ) or any(
+                browse_enabled[extension]
+                and direct_browse_needs_refresh[extension]
+                for extension in extensions
+            ) or (not copy_enabled and direct_copy) or (
+                not move_enabled and direct_move
+            ) or any(
+                extract_enabled[extension]
+                and direct_extract_needs_refresh[extension]
+                for extension in extensions
+            ) or any(
+                not browse_enabled[extension] and direct_browse[extension]
+                for extension in extensions
+            ) or any(
+                not extract_enabled[extension] and direct_extract[extension]
+                for extension in extensions
+            )
+
+        def needs_refresh(
+            enabled: bool,
+            direct_registered: bool,
+            cascade_registered: bool,
+            direct_needs_refresh: bool = False,
+            cascade_needs_refresh: bool = False,
+        ) -> bool:
+            if grouped:
+                return enabled and (
+                    direct_registered
+                    or not cascade_registered
+                    or not parent_current
+                    or cascade_needs_refresh
+                )
+            return cascade_registered or (
+                enabled and direct_needs_refresh
+            )
+
+        browse_needs_refresh = {
+            extension: needs_refresh(
+                browse_enabled[extension],
+                direct_browse[extension],
+                cascade_browse_registered,
+                direct_browse_needs_refresh[extension],
+                cascade_browse_needs_refresh,
+            )
+            for extension in extensions
+        }
+        extract_needs_refresh = {
+            extension: needs_refresh(
+                extract_enabled[extension],
+                direct_extract[extension],
+                cascade_extract_registered,
+                direct_extract_needs_refresh[extension],
+                cascade_extract_needs_refresh,
+            )
+            for extension in extensions
+        }
+        return {
+            "context_menu_submenu": grouped,
+            "context_menu_submenu_needs_refresh": submenu_needs_refresh,
+            "file_context_mix_copy": copy_enabled,
+            "file_context_mix_copy_needs_refresh": needs_refresh(
+                copy_enabled,
+                direct_copy,
+                cascade_copy_registered,
+                self._verb_needs_refresh(
+                    _FILE_MIX_COPY_VERB,
+                    self._shell_menu_label(
+                        "Create MIX here and copy selected items..."
+                    ),
+                    self._shell_operation_commands["pack_copy"],
+                    multi_select=True,
+                ),
+                self._verb_needs_refresh(
+                    _FILE_CONTEXT_MENU_COPY_VERB,
+                    self._shell_menu_label(
+                        "Create MIX here and copy selected items..."
+                    ),
+                    self._shell_operation_commands["pack_copy"],
+                    multi_select=True,
+                ),
+            ),
+            "file_context_mix_move": move_enabled,
+            "file_context_mix_move_needs_refresh": needs_refresh(
+                move_enabled,
+                direct_move,
+                cascade_move_registered,
+                self._verb_needs_refresh(
+                    _FILE_MIX_MOVE_VERB,
+                    self._shell_menu_label(
+                        "Create MIX here and move selected items..."
+                    ),
+                    self._shell_operation_commands["pack_move"],
+                    multi_select=True,
+                ),
+                self._verb_needs_refresh(
+                    _FILE_CONTEXT_MENU_MOVE_VERB,
+                    self._shell_menu_label(
+                        "Create MIX here and move selected items..."
+                    ),
+                    self._shell_operation_commands["pack_move"],
+                    multi_select=True,
+                ),
+            ),
+            "container_file_context_menus": browse_enabled,
+            "container_file_context_menu_needs_refresh": browse_needs_refresh,
+            "container_file_extract_context_menus": extract_enabled,
+            "container_file_extract_context_menu_needs_refresh": extract_needs_refresh,
+            "mix_context_menu": browse_enabled.get(".mix", False),
+            "mix_context_menu_needs_refresh": browse_needs_refresh.get(
+                ".mix", False
+            ),
+        }
+
+    def _context_menu_grouping_enabled(self) -> bool:
+        import winreg
+
+        value = self._value(
+            winreg.HKEY_CURRENT_USER,
+            _CONTEXT_MENU_SETTINGS_KEY,
+            _CONTEXT_MENU_GROUPING_VALUE,
+        )
+        return True if value is None else bool(value)
+
+    def _context_menu_bool(self, name: str) -> bool | None:
+        import winreg
+
+        value = self._value(
+            winreg.HKEY_CURRENT_USER,
+            _CONTEXT_MENU_SETTINGS_KEY,
+            name,
+        )
+        return bool(value) if isinstance(value, int) else None
+
+    def _context_menu_extensions(self, name: str) -> set[str] | None:
+        import winreg
+
+        value = self._value(
+            winreg.HKEY_CURRENT_USER,
+            _CONTEXT_MENU_SETTINGS_KEY,
+            name,
+        )
+        if not isinstance(value, (tuple, list)):
+            return None
+        return {
+            extension.casefold()
+            for extension in value
+            if isinstance(extension, str)
+            and extension.casefold() in MIX_CONTAINER_SUFFIXES
+        }
+
+    @staticmethod
+    def _extension_applies_to(extensions: set[str]) -> str | None:
+        if not extensions:
+            return None
+        return " OR ".join(
+            f'System.FileExtension:="{extension}"'
+            for extension in sorted(extensions)
+        )
+
+    def _cascade_menu_is_current(
+        self,
+        path: str,
+        applies_to: str | None,
+    ) -> bool:
+        import winreg
+
+        hive = winreg.HKEY_CURRENT_USER
+        return (
+            self._value(hive, path, "MUIVerb") == _APPLICATION_NAME
+            and self._value(hive, path, "SubCommands") == ""
+            and self._value(hive, path, "Icon") == _APPLICATION_ICON_VALUE
+            and self._value(hive, path, _REGISTRATION_OWNER) == _APPLICATION_NAME
+            and self._value(hive, path, "AppliesTo") == applies_to
+        )
+
+    def _write_cascade_menu(
+        self,
+        path: str,
+        applies_to: str | None,
+    ) -> None:
+        import winreg
+
+        self._delete_tree(winreg.HKEY_CURRENT_USER, path)
+        with winreg.CreateKeyEx(
+            winreg.HKEY_CURRENT_USER,
+            path,
+            0,
+            winreg.KEY_SET_VALUE,
+        ) as key:
+            winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, _APPLICATION_NAME)
+            winreg.SetValueEx(key, "SubCommands", 0, winreg.REG_SZ, "")
+            winreg.SetValueEx(key, "Icon", 0, winreg.REG_SZ, _APPLICATION_ICON_VALUE)
+            winreg.SetValueEx(
+                key,
+                _REGISTRATION_OWNER,
+                0,
+                winreg.REG_SZ,
+                _APPLICATION_NAME,
+            )
+            if applies_to is not None:
+                winreg.SetValueEx(
+                    key,
+                    "AppliesTo",
+                    0,
+                    winreg.REG_SZ,
+                    applies_to,
+                )
+
+    def _write_context_menu_settings(
+        self,
+        *,
+        grouped: bool,
+        copy_enabled: bool,
+        move_enabled: bool,
+        browse_extensions: set[str],
+        extract_extensions: set[str],
+    ) -> None:
+        import winreg
+
+        with winreg.CreateKeyEx(
+            winreg.HKEY_CURRENT_USER,
+            _CONTEXT_MENU_SETTINGS_KEY,
+            0,
+            winreg.KEY_SET_VALUE,
+        ) as key:
+            for name, enabled in (
+                (_CONTEXT_MENU_GROUPING_VALUE, grouped),
+                ("PackCopy", copy_enabled),
+                ("PackMove", move_enabled),
+            ):
+                winreg.SetValueEx(key, name, 0, winreg.REG_DWORD, int(enabled))
+            winreg.SetValueEx(
+                key,
+                _CONTEXT_MENU_BROWSE_EXTENSIONS_VALUE,
+                0,
+                winreg.REG_MULTI_SZ,
+                sorted(browse_extensions),
+            )
+            winreg.SetValueEx(
+                key,
+                _CONTEXT_MENU_EXTRACT_EXTENSIONS_VALUE,
+                0,
+                winreg.REG_MULTI_SZ,
+                sorted(extract_extensions),
+            )
+
+    def _configure_file_context_menu(
+        self,
+        *,
+        grouped: bool,
+        copy_enabled: bool,
+        move_enabled: bool,
+        browse_extensions: set[str],
+        extract_extensions: set[str],
+    ) -> None:
+        import winreg
+
+        hive = winreg.HKEY_CURRENT_USER
+        for path in (
+            _FILE_MIX_COPY_VERB,
+            _FILE_MIX_MOVE_VERB,
+            _FILE_CONTEXT_MENU_ROOT,
+            *(
+                self._container_context_verb(extension)
+                for extension in MIX_CONTAINER_SUFFIXES
+            ),
+            *(
+                self._container_extract_context_verb(extension)
+                for extension in MIX_CONTAINER_SUFFIXES
+            ),
+        ):
+            self._delete_tree(hive, path)
+
+        if grouped:
+            has_commands = (
+                copy_enabled
+                or move_enabled
+                or bool(browse_extensions)
+                or bool(extract_extensions)
+            )
+            if has_commands:
+                parent_applies_to = (
+                    None
+                    if copy_enabled or move_enabled
+                    else self._extension_applies_to(
+                        browse_extensions | extract_extensions
+                    )
+                )
+                self._write_cascade_menu(
+                    _FILE_CONTEXT_MENU_ROOT,
+                    parent_applies_to,
+                )
+                if copy_enabled:
+                    self._write_verb(
+                        _FILE_CONTEXT_MENU_COPY_VERB,
+                        self._shell_menu_label(
+                            "Create MIX here and copy selected items..."
+                        ),
+                        self._shell_operation_commands["pack_copy"],
+                        multi_select=True,
+                    )
+                if move_enabled:
+                    self._write_verb(
+                        _FILE_CONTEXT_MENU_MOVE_VERB,
+                        self._shell_menu_label(
+                            "Create MIX here and move selected items..."
+                        ),
+                        self._shell_operation_commands["pack_move"],
+                        multi_select=True,
+                    )
+                if browse_extensions:
+                    self._write_verb(
+                        _FILE_CONTEXT_MENU_BROWSE_VERB,
+                        self._browse_menu_label(),
+                        applies_to=self._extension_applies_to(browse_extensions),
+                    )
+                if extract_extensions:
+                    self._write_verb(
+                        _FILE_CONTEXT_MENU_EXTRACT_VERB,
+                        self._shell_menu_label(
+                            "Extract selected containers into same-name folders..."
+                        ),
+                        self._shell_operation_commands["extract_containers"],
+                        multi_select=True,
+                        applies_to=self._extension_applies_to(extract_extensions),
+                    )
+        else:
+            if copy_enabled:
+                self._write_verb(
+                    _FILE_MIX_COPY_VERB,
+                    self._shell_menu_label(
+                        "Create MIX here and copy selected items..."
+                    ),
+                    self._shell_operation_commands["pack_copy"],
+                    multi_select=True,
+                )
+            if move_enabled:
+                self._write_verb(
+                    _FILE_MIX_MOVE_VERB,
+                    self._shell_menu_label(
+                        "Create MIX here and move selected items..."
+                    ),
+                    self._shell_operation_commands["pack_move"],
+                    multi_select=True,
+                )
+            for extension in browse_extensions:
+                self._write_verb(
+                    self._container_context_verb(extension),
+                    self._browse_menu_label(),
+                )
+            for extension in extract_extensions:
+                self._write_verb(
+                    self._container_extract_context_verb(extension),
+                    self._shell_menu_label(
+                        "Extract selected containers into same-name folders..."
+                    ),
+                    self._shell_operation_commands["extract_containers"],
+                    multi_select=True,
+                )
+
+        self._write_context_menu_settings(
+            grouped=grouped,
+            copy_enabled=copy_enabled,
+            move_enabled=move_enabled,
+            browse_extensions=browse_extensions,
+            extract_extensions=extract_extensions,
+        )
 
     def configure(
         self,
@@ -181,6 +757,10 @@ class WindowsShellRegistry:
         mix_file_association: bool | None,
         container_file_associations: dict[str, bool] | None = None,
         container_file_context_menus: dict[str, bool] | None = None,
+        file_context_mix_copy: bool | None = None,
+        file_context_mix_move: bool | None = None,
+        container_file_extract_context_menus: dict[str, bool] | None = None,
+        context_menu_submenu: bool | None = None,
     ) -> dict[str, object]:
         if not self.is_supported():
             raise OSError("Windows shell registration is only available on Windows.")
@@ -189,6 +769,109 @@ class WindowsShellRegistry:
 
         current = self.read_state()
         changed = False
+        file_context_settings_requested = any(
+            value is not None
+            for value in (
+                file_context_mix_copy,
+                file_context_mix_move,
+                container_file_context_menus,
+                mix_context_menu,
+                container_file_extract_context_menus,
+                context_menu_submenu,
+            )
+        )
+        if file_context_settings_requested:
+            desired_grouping = (
+                bool(current["context_menu_submenu"])
+                if context_menu_submenu is None
+                else bool(context_menu_submenu)
+            )
+            desired_copy = (
+                bool(current["file_context_mix_copy"])
+                if file_context_mix_copy is None
+                else bool(file_context_mix_copy)
+            )
+            desired_move = (
+                bool(current["file_context_mix_move"])
+                if file_context_mix_move is None
+                else bool(file_context_mix_move)
+            )
+            desired_browse = dict(current["container_file_context_menus"])
+            if container_file_context_menus is not None:
+                for extension, registered in container_file_context_menus.items():
+                    normalized = extension.casefold()
+                    if normalized not in MIX_CONTAINER_SUFFIXES:
+                        raise ValueError(
+                            f"Unsupported MIX container extension: {extension}"
+                        )
+                    desired_browse[normalized] = bool(registered)
+            if mix_context_menu is not None:
+                desired_browse[".mix"] = bool(mix_context_menu)
+
+            desired_extract = dict(
+                current["container_file_extract_context_menus"]
+            )
+            if container_file_extract_context_menus is not None:
+                for extension, registered in container_file_extract_context_menus.items():
+                    normalized = extension.casefold()
+                    if normalized not in MIX_CONTAINER_SUFFIXES:
+                        raise ValueError(
+                            f"Unsupported MIX container extension: {extension}"
+                        )
+                    desired_extract[normalized] = bool(registered)
+
+            settings_changed = (
+                desired_grouping != bool(current["context_menu_submenu"])
+                or desired_copy != bool(current["file_context_mix_copy"])
+                or desired_move != bool(current["file_context_mix_move"])
+                or desired_browse != current["container_file_context_menus"]
+                or desired_extract
+                != current["container_file_extract_context_menus"]
+                or bool(current["context_menu_submenu_needs_refresh"])
+                or any(
+                    desired_browse[extension]
+                    and bool(
+                        current["container_file_context_menu_needs_refresh"][
+                            extension
+                        ]
+                    )
+                    for extension in MIX_CONTAINER_SUFFIXES
+                )
+                or any(
+                    desired_extract[extension]
+                    and bool(
+                        current[
+                            "container_file_extract_context_menu_needs_refresh"
+                        ][extension]
+                    )
+                    for extension in MIX_CONTAINER_SUFFIXES
+                )
+                or (
+                    desired_copy
+                    and bool(current["file_context_mix_copy_needs_refresh"])
+                )
+                or (
+                    desired_move
+                    and bool(current["file_context_mix_move_needs_refresh"])
+                )
+            )
+            if settings_changed:
+                self._configure_file_context_menu(
+                    grouped=desired_grouping,
+                    copy_enabled=desired_copy,
+                    move_enabled=desired_move,
+                    browse_extensions={
+                        extension
+                        for extension, enabled in desired_browse.items()
+                        if enabled
+                    },
+                    extract_extensions={
+                        extension
+                        for extension, enabled in desired_extract.items()
+                        if enabled
+                    },
+                )
+                changed = True
         if (
             directory_context_menu is not None
             and (
@@ -208,35 +891,6 @@ class WindowsShellRegistry:
                 changed = True
             elif not directory_context_menu:
                 self._delete_tree(winreg.HKEY_CURRENT_USER, _DIRECTORY_VERB)
-                changed = True
-
-        if mix_context_menu is not None or container_file_context_menus is not None:
-            current_context_menus = dict(current["container_file_context_menus"])
-            desired_context_menus = dict(current_context_menus)
-            if container_file_context_menus is not None:
-                for extension, registered in container_file_context_menus.items():
-                    normalized = extension.casefold()
-                    if normalized not in MIX_CONTAINER_SUFFIXES:
-                        raise ValueError(
-                            f"Unsupported MIX container extension: {extension}"
-                        )
-                    desired_context_menus[normalized] = bool(registered)
-            if mix_context_menu is not None:
-                desired_context_menus[".mix"] = bool(mix_context_menu)
-            context_needs_refresh = current[
-                "container_file_context_menu_needs_refresh"
-            ]
-            if desired_context_menus != current_context_menus or any(
-                desired_context_menus[extension]
-                and bool(context_needs_refresh[extension])
-                for extension in MIX_CONTAINER_SUFFIXES
-            ):
-                for extension, registered in desired_context_menus.items():
-                    verb = self._container_context_verb(extension)
-                    if registered:
-                        self._write_verb(verb, self._browse_menu_label())
-                    else:
-                        self._delete_tree(winreg.HKEY_CURRENT_USER, verb)
                 changed = True
 
         if container_file_associations is not None or mix_file_association is not None:
@@ -316,9 +970,12 @@ class WindowsShellRegistry:
         return False
 
     def _command_belongs_to_application(self, command: object) -> bool:
-        return (
-            isinstance(command, str)
-            and command.casefold().rstrip().endswith('--open-path "%1"')
+        if not isinstance(command, str):
+            return False
+        normalized = command.casefold().rstrip()
+        return normalized.endswith('--open-path "%1"') or any(
+            normalized == expected.casefold()
+            for expected in self._shell_operation_commands.values()
         )
 
     def _verb_is_registered(self, path: str) -> bool:
@@ -333,7 +990,15 @@ class WindowsShellRegistry:
             and (owner == _APPLICATION_NAME or self._command_belongs_to_application(command))
         )
 
-    def _verb_needs_refresh(self, path: str, label: str) -> bool:
+    def _verb_needs_refresh(
+        self,
+        path: str,
+        label: str,
+        command_expected: str | None = None,
+        *,
+        multi_select: bool = False,
+        applies_to: str | None = None,
+    ) -> bool:
         if not self._verb_is_registered(path):
             return False
         import winreg
@@ -343,20 +1008,24 @@ class WindowsShellRegistry:
             path + r"\command",
             "",
         )
+        expected_command = command_expected or self._open_command
         return (
             self._value(winreg.HKEY_CURRENT_USER, path, "") != label
-            or command != self._open_command
+            or command != expected_command
             or self._value(winreg.HKEY_CURRENT_USER, path, "Icon")
             != _APPLICATION_ICON_VALUE
+            or self._value(winreg.HKEY_CURRENT_USER, path, "MultiSelectModel")
+            != ("Player" if multi_select else None)
+            or self._value(winreg.HKEY_CURRENT_USER, path, "AppliesTo")
+            != applies_to
         )
 
     @staticmethod
-    def _browse_menu_label() -> str:
+    def _shell_menu_label(source: str, *arguments: object) -> str:
         from PySide6.QtCore import QCoreApplication, QTranslator
 
-        source = "Browse with {0}"
         # Explorer reads this registry label directly, outside the app's active translator.
-        QCoreApplication.translate("WindowsShellRegistry", "Browse with {0}")
+        QCoreApplication.translate("WindowsShellRegistry", source)
 
         try:
             import ctypes
@@ -375,9 +1044,16 @@ class WindowsShellRegistry:
             if translator.load(str(catalog_path)):
                 translated = translator.translate("WindowsShellRegistry", source)
                 if translated:
-                    return translated.format(APPLICATION_DISPLAY_NAME)
+                    return translated.format(*arguments)
 
-        return source.format(APPLICATION_DISPLAY_NAME)
+        return source.format(*arguments)
+
+    @staticmethod
+    def _browse_menu_label() -> str:
+        return WindowsShellRegistry._shell_menu_label(
+            "Browse with {0}",
+            APPLICATION_DISPLAY_NAME,
+        )
 
     def _container_handler_is_registered(self, extension: str) -> bool:
         import winreg
@@ -523,7 +1199,15 @@ class WindowsShellRegistry:
         )
         return self._command_belongs_to_application(current_command)
 
-    def _write_verb(self, path: str, label: str) -> None:
+    def _write_verb(
+        self,
+        path: str,
+        label: str,
+        command: str | None = None,
+        *,
+        multi_select: bool = False,
+        applies_to: str | None = None,
+    ) -> None:
         import winreg
 
         self._delete_tree(winreg.HKEY_CURRENT_USER, path)
@@ -548,19 +1232,48 @@ class WindowsShellRegistry:
                 winreg.REG_SZ,
                 _APPLICATION_NAME,
             )
+            if multi_select:
+                winreg.SetValueEx(
+                    key,
+                    "MultiSelectModel",
+                    0,
+                    winreg.REG_SZ,
+                    "Player",
+                )
+            if applies_to is not None:
+                winreg.SetValueEx(
+                    key,
+                    "AppliesTo",
+                    0,
+                    winreg.REG_SZ,
+                    applies_to,
+                )
         with winreg.CreateKeyEx(
             winreg.HKEY_CURRENT_USER,
             path + r"\command",
             0,
             winreg.KEY_SET_VALUE,
         ) as key:
-            winreg.SetValueEx(key, "", 0, winreg.REG_SZ, self._open_command)
+            winreg.SetValueEx(
+                key,
+                "",
+                0,
+                winreg.REG_SZ,
+                command or self._open_command,
+            )
 
     @staticmethod
     def _container_context_verb(extension: str) -> str:
         return (
             rf"Software\Classes\SystemFileAssociations\{extension}"
             rf"\shell\{_CONTAINER_VERB_NAME}"
+        )
+
+    @staticmethod
+    def _container_extract_context_verb(extension: str) -> str:
+        return (
+            rf"Software\Classes\SystemFileAssociations\{extension}"
+            rf"\shell\{_CONTAINER_EXTRACT_VERB_NAME}"
         )
 
     def _mix_new_menu_is_registered(self) -> bool:
