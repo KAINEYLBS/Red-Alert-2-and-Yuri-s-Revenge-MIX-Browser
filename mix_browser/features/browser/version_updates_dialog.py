@@ -19,8 +19,12 @@ from mix_browser import __version__
 from mix_browser.shared.versioning import format_display_version
 
 
-_PREVIOUS_RELEASE_VERSION = "1.0.0"
+_PREVIOUS_RELEASE_VERSION = "1.1.0"
 _RELEASE_HISTORY = (
+    (
+        "1.0.0",
+        "1.1.0",
+    ),
     (
         "1.0.0b1",
         "1.0.0",
@@ -64,46 +68,25 @@ class VersionUpdatesDialog(QDialog):
                 self.tr("Changes since {0}").format(previous_version),
                 (
                     self.tr(
-                        "Added animated HVA pose previews for paired VXL models, with frame selection and an autoplay setting separate from SHP previews."
+                        "Added an optional orbit view for voxel previews, with adjustable viewing direction and elevation, including top-down and bottom-up views."
                     ),
                     self.tr(
-                        "VXL/HVA previews use model-based framing; VXL rendering is faster, and unit-palette selection is more reliable."
+                        "SHP previews now identify selected frames that contain no image data."
                     ),
                     self.tr(
-                        "Choose backgrounds for image, video, and voxel previews; status text adapts for contrast, and optional asset boundaries are available for SHP, VXL/HVA, and video previews."
+                        "Previews now show the format-defined transparent palette index's color by default, with a preference to display that index as transparent."
                     ),
                     self.tr(
-                        "Added MIX operations to create an archive from selected items by moving or copying them, and to extract an archive into a same-name folder."
+                        "Corrected automatic palette selection for theater-specific assets, animation variants, buildings, and loading screens."
                     ),
                     self.tr(
-                        "File Explorer commands can create a MIX or extract supported containers in lightweight mode, and can be grouped under a submenu."
+                        "Palette candidates can be grouped by use in the preview and Preferences; palettes with multiple identified uses are marked accordingly."
                     ),
                     self.tr(
-                        "Added in-app File Explorer context actions: blank space in a folder listing opens that folder; a filesystem item or tab opens its containing folder with the target selected."
+                        "Preview zoom now stays anchored at the pointer, and automatic palette changes no longer cause a brief flash."
                     ),
                     self.tr(
-                        "MIX entry previews now use detected content types, so supported files can preview even when their stored filename extension is misleading."
-                    ),
-                    self.tr(
-                        "Unified table row selection and hover styles across the application; status colors remain readable in normal, hovered, and selected rows, and table headers are resizable and fill the available width by default."
-                    ),
-                    self.tr(
-                        "Browser filtering recalculates alternating row backgrounds from visible rows and restores a temporarily hidden selection to view when its filter is re-enabled."
-                    ),
-                    self.tr(
-                        "Browser and search tables support secondary sorting with Shift-click; sorting keeps selected rows selected and visible."
-                    ),
-                    self.tr(
-                        "Press Enter to open the current table row, just like double-click; Enter does nothing when multiple rows are selected."
-                    ),
-                    self.tr(
-                        "Added an in-app interaction guide for less-visible actions; detailed sorting instructions are in the ? button of each table header."
-                    ),
-                    self.tr(
-                        "Lightweight archive dialogs show per-item validation, let users edit MIX item names, and can be configured to appear only when conflicts or errors need attention."
-                    ),
-                    self.tr(
-                        "Archive creation and extraction are available through the CLI and MCP interfaces as well as the desktop UI."
+                        "Sortable table headers reserve space for sort indicators and the clear-sort control so labels are not clipped."
                     ),
                 ),
             )
@@ -181,6 +164,51 @@ class VersionUpdatesDialog(QDialog):
         return page
 
     def _release_history_notes(self, end_version: str) -> tuple[str, ...]:
+        if end_version == "1.1.0":
+            return (
+                self.tr(
+                    "Added animated HVA pose previews for paired VXL models, with frame selection and an autoplay setting separate from SHP previews."
+                ),
+                self.tr(
+                    "VXL/HVA previews use model-based framing; VXL rendering is faster, and unit-palette selection is more reliable."
+                ),
+                self.tr(
+                    "Choose backgrounds for image, video, and voxel previews; status text adapts for contrast, and optional asset boundaries are available for SHP, VXL/HVA, and video previews."
+                ),
+                self.tr(
+                    "Added MIX operations to create an archive from selected items by moving or copying them, and to extract an archive into a same-name folder."
+                ),
+                self.tr(
+                    "File Explorer commands can create a MIX or extract supported containers in lightweight mode, and can be grouped under a submenu."
+                ),
+                self.tr(
+                    "Added in-app File Explorer context actions: blank space in a folder listing opens that folder; a filesystem item or tab opens its containing folder with the target selected."
+                ),
+                self.tr(
+                    "MIX entry previews now use detected content types, so supported files can preview even when their stored filename extension is misleading."
+                ),
+                self.tr(
+                    "Unified table row selection and hover styles across the application; status colors remain readable in normal, hovered, and selected rows, and table headers are resizable and fill the available width by default."
+                ),
+                self.tr(
+                    "Browser filtering recalculates alternating row backgrounds from visible rows and restores a temporarily hidden selection to view when its filter is re-enabled."
+                ),
+                self.tr(
+                    "Browser and search tables support secondary sorting with Shift-click; sorting keeps selected rows selected and visible."
+                ),
+                self.tr(
+                    "Press Enter to open the current table row, just like double-click; Enter does nothing when multiple rows are selected."
+                ),
+                self.tr(
+                    "Added an in-app interaction guide for less-visible actions; detailed sorting instructions are in the ? button of each table header."
+                ),
+                self.tr(
+                    "Lightweight archive dialogs show per-item validation, let users edit MIX item names, and can be configured to appear only when conflicts or errors need attention."
+                ),
+                self.tr(
+                    "Archive creation and extraction are available through the CLI and MCP interfaces as well as the desktop UI."
+                ),
+            )
         if end_version == "1.0.0b1":
             return (self.tr("Resolved some issues."),)
         if end_version == "1.0.0":

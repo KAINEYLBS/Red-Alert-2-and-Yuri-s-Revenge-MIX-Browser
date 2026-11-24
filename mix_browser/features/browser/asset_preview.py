@@ -93,12 +93,12 @@ _ANIMATION_REFERENCE_FIELDS = (
 _MIN_PALETTE_PREFIX_STEM_LENGTH = 6
 _MIN_PALETTE_NAME_SIMILARITY = 0.7
 _THEATER_SUFFIXES = {
-    "tem": ("unittem.pal", "isotem.pal", "temperat.pal"),
-    "sno": ("unitsno.pal", "isosno.pal", "snow.pal"),
-    "urb": ("uniturb.pal", "isourb.pal", "urban.pal"),
-    "des": ("unitdes.pal", "isodes.pal", "desert.pal"),
-    "lun": ("unitlun.pal", "isolun.pal", "lunar.pal"),
-    "ubn": ("unitubn.pal", "isoubn.pal", "urbann.pal"),
+    "tem": ("unittem.pal", "isotem.pal"),
+    "sno": ("unitsno.pal", "isosno.pal"),
+    "urb": ("uniturb.pal", "isourb.pal"),
+    "des": ("unitdes.pal", "isodes.pal"),
+    "lun": ("unitlun.pal", "isolun.pal"),
+    "ubn": ("unitubn.pal", "isoubn.pal"),
 }
 _ISO_ARCHIVE_THEATERS = {
     "tem": "tem",
@@ -134,12 +134,14 @@ _THEATER_LETTER_TO_CODE = {
 _PaletteCancellationSignal = Event | Callable[[], bool] | None
 
 
+# @arch mix-browser.indexed-frame model | en: Stores palette-indexed pixels and empty-frame state for one decoded image frame | zh: 保存单个解码图像帧的色盘索引像素与空帧状态
 @dataclass(frozen=True)
 class IndexedFrame:
     width: int
     height: int
     pixels: bytes
     opaque: bytes | None = None
+    is_empty: bool = False
 
 
 @dataclass(frozen=True)
@@ -150,6 +152,7 @@ class PaletteOption:
     source: str = ""
     group: str = "other"
     asset_pattern: str = ""
+    use_categories: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -165,6 +168,7 @@ class PaletteSelectionStage:
     key: str
     title: str
     details: tuple[str, ...]
+    detail_format_arguments: tuple[tuple[int, tuple[object, ...]], ...] = ()
 
 
 PALETTE_SELECTION_STAGES = (
@@ -181,7 +185,7 @@ PALETTE_SELECTION_STAGES = (
         "game_rules",
         QT_TRANSLATE_NOOP("EntryPreviewPane", "Game Rule"),
         (
-            QT_TRANSLATE_NOOP("EntryPreviewPane", "Read {0} from the configured game folder and from MIX archives under it, including nested MIX archives.").format(", ".join(_GAME_RULE_CONFIG_NAMES)),
+            QT_TRANSLATE_NOOP("EntryPreviewPane", "Read {0} from the configured game folder and from MIX archives under it, including nested MIX archives."),
             QT_TRANSLATE_NOOP("EntryPreviewPane", "Resolve rules by asset section name and Art resource references, including buildup, bib, active animation, idle animation, and special overlay assets. NewTheater variants can link a theater-specific asset back to its base section."),
             QT_TRANSLATE_NOOP("EntryPreviewPane", "Rules [Animations] and animation-reference fields identify animation SHPs; particle Image references identify particle graphics; [OverlayTypes] and [TerrainTypes] identify terrain SHPs; weapon Projectile links identify projectile Image SHPs; [VoxelAnims] identifies unit-palette VXLs."),
             QT_TRANSLATE_NOOP("EntryPreviewPane", "Use the first applicable target source in this order: non-default CustomPalette; non-default Palette; enabled AltPalette; enabled NewTheater; enabled AnimPalette; enabled TerrainPalette; Cameo/AltCameo and SidebarImage links; ICON/UICO cameo defaults; then animation, building, terrain, or unit defaults inferred from Art fields and file type. Boolean flags accept yes, true, or 1, case-insensitively. Lower-priority target sources are not tried after a source applies."),
@@ -189,9 +193,10 @@ PALETTE_SELECTION_STAGES = (
             QT_TRANSLATE_NOOP("EntryPreviewPane", "When a projectile rule linked through Image has FirersPalette=yes, use the firing unit's theater unit palette."),
             QT_TRANSLATE_NOOP("EntryPreviewPane", "When Art identifies an object with Cameo or AltCameo but no Foundation, infer its SHP as a unit image; Foundation continues to identify building images."),
             QT_TRANSLATE_NOOP("EntryPreviewPane", "CustomPalette values none and default are ignored; otherwise replace ~~~ with the theater code and add .pal when needed. Palette values none and default are ignored. An explicit .pal name is used as written; a base name tries the theater-suffixed name before the unsuffixed name. NewTheater maps second-character A, D, L, N, and U to Snow, Desert, Lunar, New Urban, and Urban; G, T, and unmapped letters use the selected theater. Building-buildup SHPs ending in MK use this filename mapping even when no matching Art section is available. Auto uses tem when no theater can be identified. Theater codes are tem, sno, urb, des, lun, and ubn."),
-            QT_TRANSLATE_NOOP("EntryPreviewPane", "Cameo and AltCameo use UnitArt.CameoPalette, default cameo.pal. SidebarImage uses SidebarPalette, also default cameo.pal. An animation defaults to anim.pal. If AnimPalette is present but disabled and TerrainPalette does not match, the current rule logic returns the theater unit palette. Building, terrain, and unit defaults use theater-specific palettes."),
+            QT_TRANSLATE_NOOP("EntryPreviewPane", "Cameo and AltCameo use UnitArt.CameoPalette, default cameo.pal. SidebarImage uses SidebarPalette, also default cameo.pal. An animation variant that matches an Art object family inherits that family's palette rules; otherwise it defaults to anim.pal. If AnimPalette is present but disabled and TerrainPalette does not match, the current rule logic returns the theater unit palette. Building and unit defaults use the theater unit palette; terrain defaults use the theater ISO palette."),
             QT_TRANSLATE_NOOP("EntryPreviewPane", "Check only the expected name or names returned by the first applicable target source. For each name, compare palette basenames case-insensitively and check current-MIX/same-folder palettes before game-folder palettes. A local copy wins over a game-folder copy with the same basename, even when their colors differ. If multiple local palettes have that basename, choose by the local candidate order: case-insensitive full name, source, then color values. If that source's returned names are absent from both places, continue to inference instead of trying lower-priority target sources."),
         ),
+        detail_format_arguments=((0, (", ".join(_GAME_RULE_CONFIG_NAMES),)),),
     ),
     PaletteSelectionStage(
         "inference",
@@ -199,15 +204,21 @@ PALETTE_SELECTION_STAGES = (
         (
             QT_TRANSLATE_NOOP("EntryPreviewPane", "First compare asset and palette basename stems for exact equality, case-insensitively, with no minimum-length requirement. Check current-MIX/same-folder palettes before game-folder palettes."),
             QT_TRANSLATE_NOOP("EntryPreviewPane", "A SHP in cameo.mix uses cameo.pal when available."),
+            QT_TRANSLATE_NOOP("EntryPreviewPane", "Numbered loading-screen SHPs use ldscrna.pal for the A and B families, ldscrns.pal for the S family, and ldscrn.pal for other letter families. Named loading-screen SHPs first use a matching mpls<name>.pal palette when available, then mpls.pal. Exact matches in the current MIX or same folder take precedence."),
             QT_TRANSLATE_NOOP("EntryPreviewPane", "After exact basename and archive-context matches, a one-frame SHP with a 60 by 48 canvas is treated as a cameo and uses cameo.pal when available; this precedes prefix and similarity matching."),
             QT_TRANSLATE_NOOP("EntryPreviewPane", "For SHPs in ISO MIX archives, parse iso<theater> or iso<theater>md and use that theater's ISO palette; temp and snow are aliases for tem and sno. isogen and isogenmd use the configured theater; Auto uses tem. This follows exact basename matching and precedes prefix and similarity matching."),
             QT_TRANSLATE_NOOP("EntryPreviewPane", "For SHP assets in a named non-ISO theater MIX, infer the theater from the nearest matching archive name and use its unit palette. Recognized names include temperat, snow/snowmd, urban, desert/des, lunar/lun, and urbann/ubn. This follows exact basename matching and precedes prefix and similarity matching."),
             QT_TRANSLATE_NOOP("EntryPreviewPane", "Built-in SHP UI families use their matching game palettes: arrow uses mousepal.pal; ebtn-dn/up use sdbtnanm.pal; pipbrd, pips/pips2, and progbar/progbar2/progbarm use sidebar.pal."),
-            QT_TRANSLATE_NOOP("EntryPreviewPane", "If there is no exact stem match, compare filename prefixes. A palette stem must contain at least {0} characters and prefix-match the asset stem; the longest match wins. Check current-MIX/same-folder palettes before game-folder palettes.").format(_MIN_PALETTE_PREFIX_STEM_LENGTH),
-            QT_TRANSLATE_NOOP("EntryPreviewPane", "If no exact or prefix match applies, compare case-folded filename stems of current-MIX/same-folder palettes with difflib.SequenceMatcher.ratio. Choose the highest-scoring local palette only when its score is greater than {0:.0%}; break ties by case-insensitive palette name, source, then color values.").format(_MIN_PALETTE_NAME_SIMILARITY),
-            QT_TRANSLATE_NOOP("EntryPreviewPane", "If no local similarity score is greater than {0:.0%}, compare game-directory palette stems with the same method and threshold. Break ties by case-insensitive palette name, source, then color values.").format(_MIN_PALETTE_NAME_SIMILARITY),
+            QT_TRANSLATE_NOOP("EntryPreviewPane", "If there is no exact stem match, compare filename prefixes. A palette stem must contain at least {0} characters and prefix-match the asset stem; the longest match wins. Check current-MIX/same-folder palettes before game-folder palettes."),
+            QT_TRANSLATE_NOOP("EntryPreviewPane", "If no exact or prefix match applies, compare case-folded filename stems of current-MIX/same-folder palettes with difflib.SequenceMatcher.ratio. Choose the highest-scoring local palette only when its score is greater than {0:.0%}; break ties by case-insensitive palette name, source, then color values."),
+            QT_TRANSLATE_NOOP("EntryPreviewPane", "If no local similarity score is greater than {0:.0%}, compare game-directory palette stems with the same method and threshold. Break ties by case-insensitive palette name, source, then color values."),
             QT_TRANSLATE_NOOP("EntryPreviewPane", "If neither similarity step matches, choose one local palette deterministically by case-insensitive palette name, source, then color values. Do not choose an unrelated game-directory palette at this step."),
             QT_TRANSLATE_NOOP("EntryPreviewPane", "If inference finds no palette and no local palette is available, use grayscale."),
+        ),
+        detail_format_arguments=(
+            (7, (_MIN_PALETTE_PREFIX_STEM_LENGTH,)),
+            (8, (_MIN_PALETTE_NAME_SIMILARITY,)),
+            (9, (_MIN_PALETTE_NAME_SIMILARITY,)),
         ),
     ),
     PaletteSelectionStage(
@@ -222,6 +233,15 @@ PALETTE_GROUPS = (
     ("custom", QT_TRANSLATE_NOOP("EntryPreviewPane", "User Defined")),
     ("local", QT_TRANSLATE_NOOP("EntryPreviewPane", "Same Directory")),
     ("game", QT_TRANSLATE_NOOP("EntryPreviewPane", "Game Directory")),
+)
+PALETTE_USE_GROUPS = (
+    ("building", QT_TRANSLATE_NOOP("EntryPreviewPane", "Buildings")),
+    ("unit", QT_TRANSLATE_NOOP("EntryPreviewPane", "Units")),
+    ("terrain", QT_TRANSLATE_NOOP("EntryPreviewPane", "Terrain")),
+    ("animation", QT_TRANSLATE_NOOP("EntryPreviewPane", "Animations and Effects")),
+    ("projectile", QT_TRANSLATE_NOOP("EntryPreviewPane", "Projectiles")),
+    ("interface", QT_TRANSLATE_NOOP("EntryPreviewPane", "Interface and Cameos")),
+    ("other", QT_TRANSLATE_NOOP("EntryPreviewPane", "Other or Unclassified")),
 )
 
 
@@ -249,7 +269,31 @@ _GAME_ART_RULE_INDEX_CACHE: dict[
     int,
     tuple[dict[str, dict[str, str]], _GameArtRuleIndex],
 ] = {}
+_PALETTE_USE_CATEGORY_CACHE: dict[
+    int,
+    tuple[dict[str, dict[str, str]], dict[str, tuple[str, ...]]],
+] = {}
 _MAX_GAME_ART_RULE_INDEX_CACHE = 4
+_PALETTE_USE_CATEGORY_ORDER = (
+    "building",
+    "unit",
+    "terrain",
+    "animation",
+    "projectile",
+    "interface",
+)
+_DEFAULT_PALETTE_USE_CATEGORIES: dict[str, frozenset[str]] = {
+    "anim.pal": frozenset({"animation"}),
+    "cameo.pal": frozenset({"interface"}),
+    "mousepal.pal": frozenset({"interface"}),
+    "sdbtnanm.pal": frozenset({"interface"}),
+    "sidebar.pal": frozenset({"interface"}),
+}
+for _unit_palette, _iso_palette in _THEATER_SUFFIXES.values():
+    _DEFAULT_PALETTE_USE_CATEGORIES[_unit_palette] = frozenset(
+        {"building", "unit"}
+    )
+    _DEFAULT_PALETTE_USE_CATEGORIES[_iso_palette] = frozenset({"terrain"})
 
 
 # @arch mix-browser.voxel-preview-model model | en: Holds VXL surface geometry, frame transforms, and per-frame bounds for preview rendering | zh: 保存 VXL 表面几何、逐帧变换及预览范围
@@ -798,7 +842,12 @@ def decode_shp_ts(data: bytes) -> tuple[int, int, tuple[IndexedFrame, ...]]:
         x, y, width, height = struct.unpack_from("<HHHH", data, offset)
         compression = data[offset + 8]
         frame_offset = struct.unpack_from("<I", data, offset + 20)[0]
-        if compression > 3 or width > 8192 or height > 8192:
+        empty_frame = width == 0 and height == 0 and frame_offset == 0
+        if (
+            (compression > 3 and not empty_frame)
+            or width > 8192
+            or height > 8192
+        ):
             raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'The SHP frame header uses unsupported values.'))
         if frame_offset and not table_end <= frame_offset < len(data):
             raise ValueError(QCoreApplication.translate("EntryPreviewPane", 'A SHP frame offset extends beyond the sprite data.'))
@@ -813,7 +862,14 @@ def decode_shp_ts(data: bytes) -> tuple[int, int, tuple[IndexedFrame, ...]]:
     total_pixels = 0
     for x, y, width, height, compression, frame_offset in headers:
         if not frame_offset or width == 0 or height == 0:
-            frames.append(IndexedFrame(canvas_width, canvas_height, bytes(canvas_width * canvas_height)))
+            frames.append(
+                IndexedFrame(
+                    canvas_width,
+                    canvas_height,
+                    bytes(canvas_width * canvas_height),
+                    is_empty=True,
+                )
+            )
             total_pixels += canvas_width * canvas_height
             continue
         total_pixels += canvas_width * canvas_height
@@ -1614,6 +1670,18 @@ def _add_palette_sources(
     gray = _grayscale_palette()
     palettes.append(gray)
 
+    palette_use_categories = _palette_use_categories(art_rules)
+    palettes = [
+        replace(
+            palette,
+            use_categories=palette_use_categories.get(
+                Path(palette.name).name.casefold(),
+                (),
+            ),
+        )
+        for palette in palettes
+    ]
+
     unique: dict[tuple[object, ...], PaletteOption] = {}
     for palette in palettes:
         if palette.group == "custom":
@@ -1701,6 +1769,7 @@ def _add_palette_sources(
             palette_context,
             entry.file_type or Path(entry.name or "").suffix.lstrip("."),
             palette_theater,
+            entry.name or "",
         ),
     )
     inferred_palette = None
@@ -1883,6 +1952,7 @@ class FallbackPaletteClassifier:
                         palette_context,
                         asset_type,
                         self._palette_theater,
+                        entry_name,
                     )
                 ):
                     result = False
@@ -2022,6 +2092,26 @@ class FallbackPaletteClassifier:
                 )
                 if _new_theater_variant_matches(candidate_stem, stem)
             )
+
+        resolved_rule_kinds = {
+            section_rules.get("_asset_kind")
+            for section_rules in image_rules
+            if section_rules.get("_asset_kind")
+        }
+        resolved_rule_kind = rules.get("_asset_kind")
+        if resolved_rule_kind is None and len(resolved_rule_kinds) == 1:
+            resolved_rule_kind = next(iter(resolved_rule_kinds))
+        if resolved_rule_kind == "animation":
+            family_stem = _animation_palette_family_stem(stem)
+            if family_stem:
+                image_rules.extend(
+                    _animation_family_palette_rules(
+                        family_stem,
+                        self._game_art_rules,
+                        self._art_rule_reference_index,
+                        self._art_rule_variant_index,
+                    )
+                )
 
         unique_image_rules = []
         seen_rules: set[int] = set()
@@ -2751,7 +2841,7 @@ def _preferred_palette_names(
     if asset_kind == "animation":
         return ("anim.pal",)
     if asset_kind == "building":
-        return (_THEATER_SUFFIXES[theater][2],)
+        return (_THEATER_SUFFIXES[theater][0],)
     if asset_kind == "terrain":
         return (_THEATER_SUFFIXES[theater][1],)
     if asset_kind == "unit":
@@ -2777,6 +2867,27 @@ def _rules_for_asset(
             if _new_theater_variant_matches(candidate_stem, stem)
         )
 
+    resolved_rule_kinds = {
+        section_rules.get("_asset_kind")
+        for section_rules in resource_rules
+        if section_rules.get("_asset_kind")
+    }
+    resolved_rule_kind = rules.get("_asset_kind")
+    if resolved_rule_kind is None and len(resolved_rule_kinds) == 1:
+        resolved_rule_kind = next(iter(resolved_rule_kinds))
+
+    if resolved_rule_kind == "animation":
+        family_stem = _animation_palette_family_stem(stem)
+        if family_stem:
+            resource_rules.extend(
+                _animation_family_palette_rules(
+                    family_stem,
+                    art_rules,
+                    index.references,
+                    index.variants,
+                )
+            )
+
     unique_rules = []
     seen_rules: set[int] = set()
     for section_rules in resource_rules:
@@ -2793,6 +2904,49 @@ def _rules_for_asset(
         if len(values) == 1:
             rules[field] = next(iter(values))
     return rules
+
+
+def _animation_palette_family_stem(stem: str) -> str:
+    prefix, separator, suffix = stem.rpartition("_")
+    if separator and re.fullmatch(r"[a-z]", suffix):
+        return prefix
+    return ""
+
+
+def _animation_family_palette_rules(
+    family_stem: str,
+    art_rules: dict[str, dict[str, str]],
+    references: dict[str, tuple[dict[str, str], ...]],
+    variants: dict[tuple[str, str], tuple[tuple[str, dict[str, str]], ...]],
+) -> tuple[dict[str, str], ...]:
+    family_rules = []
+    direct_family_rules = art_rules.get(family_stem)
+    if direct_family_rules is not None:
+        family_rules.append(direct_family_rules)
+    family_rules.extend(references.get(family_stem, ()))
+    for signature in _new_theater_variant_signatures(family_stem):
+        family_rules.extend(
+            section_rules
+            for candidate_stem, section_rules in variants.get(signature, ())
+            if _new_theater_variant_matches(candidate_stem, family_stem)
+        )
+
+    matching_rules = []
+    for section_rules in family_rules:
+        has_explicit_palette = any(
+            section_rules.get(field)
+            for field in (
+                "palette",
+                "custompalette",
+                "altpalette",
+                "animpalette",
+                "terrainpalette",
+            )
+        )
+        family_kind = _infer_asset_palette_kind(family_stem, section_rules, "shp")
+        if has_explicit_palette or family_kind in {"building", "terrain", "unit"}:
+            matching_rules.append(section_rules)
+    return tuple(matching_rules)
 
 
 def _get_game_art_rule_index(
@@ -2854,6 +3008,100 @@ def _get_game_art_rule_index(
         return index
 
 
+# @arch mix-browser.palette-use-categories utility | en: Infers palette uses from built-in rules and configured Art references | zh: 根据内置规则和已配置的 Art 引用推断色盘用途
+def _palette_use_categories(
+    art_rules: dict[str, dict[str, str]],
+) -> dict[str, tuple[str, ...]]:
+    cache_key = id(art_rules)
+    with _GAME_PALETTE_CACHE_LOCK:
+        cached = _PALETTE_USE_CATEGORY_CACHE.get(cache_key)
+        if cached is not None and cached[0] is art_rules:
+            return cached[1]
+
+    uses: dict[str, set[str]] = {
+        name: set(categories)
+        for name, categories in _DEFAULT_PALETTE_USE_CATEGORIES.items()
+    }
+
+    def add_palette_names(names: tuple[str, ...], categories: set[str]) -> None:
+        for name in names:
+            basename = Path(name).name.casefold()
+            if basename:
+                uses.setdefault(basename, set()).update(categories)
+
+    rule_index = _get_game_art_rule_index(art_rules)
+    unit_art = art_rules.get("unitart", {})
+    add_palette_names(
+        _palette_value_names(unit_art.get("cameopalette", "cameo.pal"), "tem"),
+        {"interface"},
+    )
+    for palette_names in rule_index.linked_palettes.values():
+        add_palette_names(palette_names, {"interface"})
+
+    for asset_stem in art_rules:
+        if asset_stem == "unitart":
+            continue
+        asset_name = f"{Path(asset_stem).stem}.shp"
+        rules = _rules_for_asset(asset_name, art_rules, rule_index=rule_index)
+        if not any(
+            rules.get(field)
+            for field in (
+                "palette",
+                "custompalette",
+                "altpalette",
+                "newtheater",
+                "animpalette",
+                "terrainpalette",
+            )
+        ):
+            continue
+        raw_kind = rules.get("_asset_kind")
+        if raw_kind == "ambiguous":
+            continue
+        if raw_kind in {"animation", "terrain", "unit", "projectile"}:
+            categories = {raw_kind}
+        elif rules.get("foundation"):
+            categories = {"building"}
+        else:
+            inferred_kind = _infer_asset_palette_kind(asset_name, rules, "shp")
+            categories = (
+                {inferred_kind}
+                if inferred_kind in _PALETTE_USE_CATEGORY_ORDER
+                else set()
+            )
+        if not categories:
+            continue
+        if _is_enabled(rules.get("firerspalette", "")):
+            categories.add("projectile")
+
+        for theater in _THEATER_SUFFIXES:
+            palette_names = _preferred_palette_names(
+                asset_name,
+                art_rules,
+                palette_theater=theater,
+                asset_type="shp",
+                resolved_rules=rules,
+                resolved_linked_names=(),
+            )
+            add_palette_names(palette_names, categories)
+            if _is_enabled(rules.get("terrainpalette", "")):
+                add_palette_names(palette_names, {"terrain"})
+
+    category_order = {
+        category: index
+        for index, category in enumerate(_PALETTE_USE_CATEGORY_ORDER)
+    }
+    categorized = {
+        name: tuple(sorted(categories, key=category_order.__getitem__))
+        for name, categories in uses.items()
+    }
+    with _GAME_PALETTE_CACHE_LOCK:
+        _PALETTE_USE_CATEGORY_CACHE[cache_key] = (art_rules, categorized)
+        while len(_PALETTE_USE_CATEGORY_CACHE) > _MAX_GAME_ART_RULE_INDEX_CACHE:
+            del _PALETTE_USE_CATEGORY_CACHE[next(iter(_PALETTE_USE_CATEGORY_CACHE))]
+    return categorized
+
+
 def _contextual_palette_names(
     entry_name: str,
     palettes: list[PaletteOption],
@@ -2867,16 +3115,42 @@ def _contextual_palette_names(
         palette for palette in palettes if palette.group in {"game", "other"}
     ]
 
-    for candidate_group in (local_palettes, game_palettes):
-        exact_matches = tuple(
-            dict.fromkeys(
-                palette.name
-                for palette in candidate_group
-                if Path(palette.name).stem.casefold() == asset_stem
-            )
+    local_exact_matches = tuple(
+        dict.fromkeys(
+            palette.name
+            for palette in local_palettes
+            if Path(palette.name).stem.casefold() == asset_stem
         )
-        if exact_matches:
-            return exact_matches
+    )
+    if local_exact_matches:
+        return local_exact_matches
+
+    archive_family_palette_names = tuple(
+        name
+        for name in archive_palette_names
+        if Path(name).stem.casefold().startswith(("mpls", "ldscrn"))
+    )
+    for archive_palette_name in archive_family_palette_names:
+        for candidate_group in (local_palettes, game_palettes):
+            archive_matches = tuple(
+                dict.fromkeys(
+                    palette.name
+                    for palette in candidate_group
+                    if _palette_basename_matches(palette.name, archive_palette_name)
+                )
+            )
+            if archive_matches:
+                return archive_matches
+
+    game_exact_matches = tuple(
+        dict.fromkeys(
+            palette.name
+            for palette in game_palettes
+            if Path(palette.name).stem.casefold() == asset_stem
+        )
+    )
+    if game_exact_matches:
+        return game_exact_matches
 
     for archive_palette_name in archive_palette_names:
         archive_matches = tuple(
@@ -3208,6 +3482,7 @@ def _archive_context_palette_names(
     palette_context: tuple[str, ...],
     asset_type: str,
     palette_theater: str,
+    entry_name: str = "",
 ) -> tuple[str, ...]:
     if asset_type.casefold() not in {"shp", "shp-ts"}:
         return ()
@@ -3219,6 +3494,11 @@ def _archive_context_palette_names(
         archive_stem = archive_path.stem.casefold()
         if archive_stem == "cameo":
             return ("cameo.pal",)
+        if archive_stem in {"load", "loadmd"}:
+            loading_screen_palettes = _loading_screen_palette_names(entry_name)
+            if loading_screen_palettes:
+                return loading_screen_palettes
+            continue
         if not archive_stem.startswith("iso"):
             theater = _THEATER_ARCHIVE_THEATERS.get(archive_stem)
             if theater is not None:
@@ -3237,6 +3517,16 @@ def _archive_context_palette_names(
         theater = _theater_code("", palette_theater)
         return (_THEATER_SUFFIXES[theater][1],)
     return ()
+
+
+def _loading_screen_palette_names(entry_name: str) -> tuple[str, ...]:
+    match = re.fullmatch(r"ls\d{3}([a-z]+?)(\d*)", Path(entry_name).stem.casefold())
+    if match is None:
+        return ()
+    if not match.group(2):
+        return (f"mpls{match.group(1)}.pal", "mpls.pal")
+    palette_suffix = {"a": "a", "b": "a", "s": "s"}.get(match.group(1), "")
+    return (f"ldscrn{palette_suffix}.pal",)
 
 
 def _is_enabled(value: str) -> bool:

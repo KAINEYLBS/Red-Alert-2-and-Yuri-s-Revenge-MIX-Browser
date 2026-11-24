@@ -211,6 +211,8 @@ def _create_entry_preview(
     parent: QWidget,
     renderer_resources: VoxelRendererResources | None = None,
     interaction_help: InteractionHelpCatalog | None = None,
+    palette_use_categories_enabled: bool = True,
+    voxel_view_mode: str = "oblique",
 ) -> EntryPreviewPane:
     from mix_browser.features.browser.entry_preview import EntryPreviewPane
 
@@ -218,6 +220,8 @@ def _create_entry_preview(
         parent,
         renderer_resources=renderer_resources,
         interaction_help=interaction_help,
+        palette_use_categories_enabled=palette_use_categories_enabled,
+        voxel_view_mode=voxel_view_mode,
     )
 
 
@@ -251,6 +255,8 @@ class MixArchivePage(QWidget):
         preview: EntryPreviewPane | None = None,
         renderer_resources: VoxelRendererResources | None = None,
         interaction_help: InteractionHelpCatalog | None = None,
+        palette_use_categories_enabled: bool = True,
+        voxel_view_mode: str = "oblique",
     ) -> None:
         super().__init__(parent)
         self.archive = archive
@@ -288,6 +294,8 @@ class MixArchivePage(QWidget):
                 self,
                 renderer_resources,
                 interaction_help,
+                palette_use_categories_enabled,
+                voxel_view_mode,
             )
         )
         self.content_splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -489,6 +497,8 @@ class DirectoryBrowserPage(QWidget):
         preview: EntryPreviewPane | None = None,
         renderer_resources: VoxelRendererResources | None = None,
         interaction_help: InteractionHelpCatalog | None = None,
+        palette_use_categories_enabled: bool = True,
+        voxel_view_mode: str = "oblique",
     ) -> None:
         super().__init__(parent)
         self.directory = directory
@@ -528,6 +538,8 @@ class DirectoryBrowserPage(QWidget):
                 self,
                 renderer_resources,
                 interaction_help,
+                palette_use_categories_enabled,
+                voxel_view_mode,
             )
         )
         self.content_splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -2037,6 +2049,7 @@ class PaletteSourcesPage(QWidget):
         directory: str,
         theater: str = "auto",
         palette_library: tuple[PaletteLibraryRule, ...] = (),
+        palette_use_categories_enabled: bool = True,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -2139,6 +2152,23 @@ class PaletteSourcesPage(QWidget):
         theater_description.setWordWrap(True)
         theater_description.setProperty("visualRole", "description")
         theater_layout.addWidget(theater_description)
+        self.palette_use_categories_checkbox = QCheckBox(
+            self.tr("Group palette candidates by use"),
+            theater_group,
+        )
+        self.palette_use_categories_checkbox.setChecked(
+            palette_use_categories_enabled
+        )
+        theater_layout.addWidget(self.palette_use_categories_checkbox)
+        palette_use_description = QLabel(
+            self.tr(
+                "Uses follow Art references and built-in palette rules. Multi-use palettes appear in each matching group."
+            ),
+            theater_group,
+        )
+        palette_use_description.setWordWrap(True)
+        palette_use_description.setProperty("visualRole", "description")
+        theater_layout.addWidget(palette_use_description)
 
         library_group = QGroupBox(self.tr("User palette library"), self)
         library_layout = QVBoxLayout(library_group)
@@ -2473,6 +2503,7 @@ class PreferencesDialog(QDialog):
         palette_directory: str,
         palette_theater: str,
         palette_library_rules: tuple[PaletteLibraryRule, ...],
+        palette_use_categories_enabled: bool,
         system_integration_state: dict[str, object],
         show_basic_operation_dialog_only_on_issues: bool,
         ui_language: str,
@@ -2550,6 +2581,7 @@ class PreferencesDialog(QDialog):
             palette_directory,
             palette_theater,
             palette_library_rules,
+            palette_use_categories_enabled,
             self,
         )
         self.tabs.addTab(self.palette_sources, self.tr("Palette Sources"))
@@ -2704,6 +2736,12 @@ class MixBrowserWindow(QMainWindow):
             group=self.tr("Image and model previews"),
         )
         interaction_help.register_gesture(
+            "mix-browser.preview-palette-wheel",
+            self.tr("Use the mouse wheel over the palette selector"),
+            self.tr("Select the previous or next palette candidate."),
+            group=self.tr("Image and model previews"),
+        )
+        interaction_help.register_gesture(
             "mix-browser.preview-image-pan",
             self.tr("Drag an image with the left mouse button"),
             self.tr("Move a zoomed image within the preview area."),
@@ -2712,7 +2750,11 @@ class MixBrowserWindow(QMainWindow):
         interaction_help.register_gesture(
             "mix-browser.preview-model-rotate",
             self.tr("Drag a voxel model with the left mouse button"),
-            self.tr("Rotate a VXL or HVA model."),
+            self.tr(
+                "In Orbit view, horizontal dragging changes the viewing azimuth "
+                "and vertical dragging changes camera elevation, including overhead "
+                "and underneath views. In Free rotation view, dragging rotates the model."
+            ),
             group=self.tr("Image and model previews"),
         )
         interaction_help.register_gesture(
@@ -2801,6 +2843,7 @@ class MixBrowserWindow(QMainWindow):
         self._preview_requests: dict[int, str] = {}
         self._preview_futures: dict[str, tuple[int, Future]] = {}
         self._preview_cancellations: dict[int, Event] = {}
+        self._preview_palette_base_results: dict[int, EntryPreviewResult] = {}
         self._pending_preview_path_key: str | None = None
         self._pending_preview_request_id: int | None = None
         self._pending_preview_start: Callable[[], None] | None = None
@@ -2866,6 +2909,18 @@ class MixBrowserWindow(QMainWindow):
             type=str,
         )
         self._palette_directory = Path(palette_directory) if palette_directory else None
+        self._palette_use_categories_enabled = self._settings.value(
+            "preview/paletteUseCategories",
+            True,
+            type=bool,
+        )
+        self._voxel_view_mode = self._settings.value(
+            "preview/voxelViewMode",
+            "oblique",
+            type=str,
+        )
+        if self._voxel_view_mode not in {"oblique", "free-rotation"}:
+            self._voxel_view_mode = "oblique"
         palette_library_setting = self._settings.value(
             "preview/paletteLibrary",
             "[]",
@@ -2959,6 +3014,11 @@ class MixBrowserWindow(QMainWindow):
         )
         self._preview_asset_boundaries_visible = self._settings.value(
             "preview/showAssetBoundaries",
+            False,
+            type=bool,
+        )
+        self._preview_transparent_index_is_transparent = self._settings.value(
+            "preview/transparentIndexIsTransparent",
             False,
             type=bool,
         )
@@ -3076,6 +3136,8 @@ class MixBrowserWindow(QMainWindow):
             self.tabs,
             self._voxel_renderer_resources,
             self._interaction_help,
+            self._palette_use_categories_enabled,
+            self._voxel_view_mode,
         )
         self._prepared_entry_preview.set_preview_background(
             self._preview_background_mode,
@@ -3083,6 +3145,9 @@ class MixBrowserWindow(QMainWindow):
         )
         self._prepared_entry_preview.set_asset_boundaries_visible(
             self._preview_asset_boundaries_visible
+        )
+        self._prepared_entry_preview.set_transparent_index_transparent(
+            self._preview_transparent_index_is_transparent
         )
         self._prepared_entry_preview.prepare_video_surface()
         self._create_split_status_bar()
@@ -3454,6 +3519,7 @@ class MixBrowserWindow(QMainWindow):
             str(self._palette_directory or ""),
             self._palette_theater,
             self._palette_library_rules,
+            self._palette_use_categories_enabled,
             system_state,
             self._settings.value(
                 SHOW_BASIC_OPERATION_DIALOG_ONLY_ON_ISSUES_KEY,
@@ -3809,6 +3875,13 @@ class MixBrowserWindow(QMainWindow):
             except OSError:
                 pass
         theater = palette_page.theater_combo.currentData()
+        palette_use_categories_enabled = (
+            palette_page.palette_use_categories_checkbox.isChecked()
+        )
+        if palette_use_categories_enabled != self._palette_use_categories_enabled:
+            self._set_palette_use_categories_preference(
+                palette_use_categories_enabled
+            )
         if (
             directory != self._palette_directory
             or theater != self._palette_theater
@@ -4041,6 +4114,29 @@ class MixBrowserWindow(QMainWindow):
         for page in self._pages_by_path.values():
             self._apply_auto_play_preferences(page)
 
+    def _set_palette_use_categories_preference(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if enabled == self._palette_use_categories_enabled:
+            return
+        self._palette_use_categories_enabled = enabled
+        self._settings.setValue("preview/paletteUseCategories", enabled)
+        for page in self._pages_by_path.values():
+            page.preview.set_palette_use_categories_enabled(enabled)
+        if self._prepared_entry_preview is not None:
+            self._prepared_entry_preview.set_palette_use_categories_enabled(enabled)
+
+    def _set_voxel_view_mode_preference(self, mode: str) -> None:
+        if mode not in {"oblique", "free-rotation"}:
+            return
+        if mode == self._voxel_view_mode:
+            return
+        self._voxel_view_mode = mode
+        self._settings.setValue("preview/voxelViewMode", mode)
+        if self._prepared_entry_preview is not None:
+            self._prepared_entry_preview.set_voxel_view_mode(mode)
+        for page in self._pages_by_path.values():
+            page.preview.set_voxel_view_mode(mode)
+
     def _set_preview_background_preference(self, mode: str, custom_color: str) -> None:
         if mode not in {"checkerboard", "dark", "light", "green", "custom"}:
             return
@@ -4070,6 +4166,24 @@ class MixBrowserWindow(QMainWindow):
         for page in self._pages_by_path.values():
             page.preview.set_asset_boundaries_visible(
                 self._preview_asset_boundaries_visible
+            )
+
+    def _set_preview_transparent_index_is_transparent(
+        self,
+        transparent: bool,
+    ) -> None:
+        self._preview_transparent_index_is_transparent = bool(transparent)
+        self._settings.setValue(
+            "preview/transparentIndexIsTransparent",
+            self._preview_transparent_index_is_transparent,
+        )
+        if self._prepared_entry_preview is not None:
+            self._prepared_entry_preview.set_transparent_index_transparent(
+                self._preview_transparent_index_is_transparent
+            )
+        for page in self._pages_by_path.values():
+            page.preview.set_transparent_index_transparent(
+                self._preview_transparent_index_is_transparent
             )
 
     def _sync_workspace_actions(self, *_args) -> None:
@@ -5676,6 +5790,14 @@ class MixBrowserWindow(QMainWindow):
     ) -> None:
         page.preview.set_asset_boundaries_visible(
             self._preview_asset_boundaries_visible
+        )
+
+    def _apply_preview_transparent_index_preference(
+        self,
+        page: MixArchivePage | DirectoryBrowserPage,
+    ) -> None:
+        page.preview.set_transparent_index_transparent(
+            self._preview_transparent_index_is_transparent
         )
 
     def _create_modified_file_banner(self) -> None:
@@ -7509,11 +7631,14 @@ class MixBrowserWindow(QMainWindow):
             preview=prepared_preview,
             renderer_resources=self._voxel_renderer_resources,
             interaction_help=self._interaction_help,
+            palette_use_categories_enabled=self._palette_use_categories_enabled,
+            voxel_view_mode=self._voxel_view_mode,
         )
         self._configure_entry_type_filters(page.entry_table)
         self._apply_auto_play_preferences(page)
         self._apply_preview_background(page)
         self._apply_preview_asset_boundaries_visibility(page)
+        self._apply_preview_transparent_index_preference(page)
         page.preview.auto_play_preference_changed.connect(
             self._set_auto_play_preference
         )
@@ -7522,6 +7647,15 @@ class MixBrowserWindow(QMainWindow):
         )
         page.preview.boundary_visibility_preference_changed.connect(
             self._set_preview_asset_boundaries_visible
+        )
+        page.preview.transparent_index_preference_changed.connect(
+            self._set_preview_transparent_index_is_transparent
+        )
+        page.preview.palette_use_categories_preference_changed.connect(
+            self._set_palette_use_categories_preference
+        )
+        page.preview.voxel_view_mode_preference_changed.connect(
+            self._set_voxel_view_mode_preference
         )
         page.navigate_requested.connect(self._activate_page)
         page.preview_requested.connect(
@@ -8376,11 +8510,14 @@ class MixBrowserWindow(QMainWindow):
             preview=prepared_preview,
             renderer_resources=self._voxel_renderer_resources,
             interaction_help=self._interaction_help,
+            palette_use_categories_enabled=self._palette_use_categories_enabled,
+            voxel_view_mode=self._voxel_view_mode,
         )
         self._configure_entry_type_filters(page.entry_table)
         self._apply_auto_play_preferences(page)
         self._apply_preview_background(page)
         self._apply_preview_asset_boundaries_visibility(page)
+        self._apply_preview_transparent_index_preference(page)
         page.preview.auto_play_preference_changed.connect(
             self._set_auto_play_preference
         )
@@ -8389,6 +8526,15 @@ class MixBrowserWindow(QMainWindow):
         )
         page.preview.boundary_visibility_preference_changed.connect(
             self._set_preview_asset_boundaries_visible
+        )
+        page.preview.transparent_index_preference_changed.connect(
+            self._set_preview_transparent_index_is_transparent
+        )
+        page.preview.palette_use_categories_preference_changed.connect(
+            self._set_palette_use_categories_preference
+        )
+        page.preview.voxel_view_mode_preference_changed.connect(
+            self._set_voxel_view_mode_preference
         )
         page.navigate_requested.connect(self._activate_page)
         page.preview_requested.connect(
@@ -8535,6 +8681,7 @@ class MixBrowserWindow(QMainWindow):
             return cancelled_pending
         request_id, future = pending
         self._preview_requests.pop(request_id, None)
+        self._preview_palette_base_results.pop(request_id, None)
         cancellation_event = self._preview_cancellations.pop(request_id, None)
         if cancellation_event is not None:
             cancellation_event.set()
@@ -8577,6 +8724,7 @@ class MixBrowserWindow(QMainWindow):
         page = self._pages_by_path.get(path_key)
         if page is None:
             self._preview_requests.pop(request_id, None)
+            self._preview_palette_base_results.pop(request_id, None)
             return
         if error or not isinstance(result, EntryPreviewResult):
             result = EntryPreviewResult(
@@ -8589,7 +8737,6 @@ class MixBrowserWindow(QMainWindow):
             and (result.frames or result.voxel_model is not None)
         ):
             self._ensure_game_palette_catalog_snapshot(self._palette_directory)
-        page.show_preview_result(request_id, result)
         if (
             not error
             and isinstance(result, EntryPreviewResult)
@@ -8644,6 +8791,7 @@ class MixBrowserWindow(QMainWindow):
             else:
                 future = None
             if future is not None:
+                self._preview_palette_base_results[request_id] = result
                 self._preview_cancellations[request_id] = cancellation_event
                 self._preview_futures[path_key] = (request_id, future)
                 future.add_done_callback(
@@ -8653,6 +8801,7 @@ class MixBrowserWindow(QMainWindow):
                     )
                 )
                 return
+        page.show_preview_result(request_id, result)
         self._preview_requests.pop(request_id, None)
 
     def _forward_entry_palette_update(
@@ -8689,14 +8838,16 @@ class MixBrowserWindow(QMainWindow):
         pending = self._preview_futures.get(path_key)
         if pending is not None and pending[0] == request_id:
             self._preview_futures.pop(path_key, None)
-        if error or not isinstance(result, EntryPreviewResult):
-            page = self._pages_by_path.get(path_key)
-            if page is not None:
-                page.preview.show_palette_lookup_failure()
-            return
+        base_result = self._preview_palette_base_results.pop(request_id, None)
         page = self._pages_by_path.get(path_key)
+        if error or not isinstance(result, EntryPreviewResult):
+            if page is not None and base_result is not None:
+                page.show_preview_result(request_id, base_result)
+                page.preview.show_palette_lookup_failure()
+                page.preview_state_changed.emit()
+            return
         if page is not None:
-            page.update_preview_palette_result(request_id, result)
+            page.show_preview_result(request_id, result)
 
     def _open_entry(self, page: MixArchivePage, index: QModelIndex) -> None:
         model = page.entry_table.source_model
@@ -9538,6 +9689,7 @@ class MixBrowserWindow(QMainWindow):
         self._preview_requests.clear()
         self._preview_futures.clear()
         self._preview_cancellations.clear()
+        self._preview_palette_base_results.clear()
         for page in self._pages_by_path.values():
             page.preview.shutdown()
         if self._prepared_entry_preview is not None:

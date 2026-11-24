@@ -43,6 +43,10 @@ This review covers the 29 plugin DLL paths in `tools/vlc_runtime_plugins.txt` an
 - VLC's contribution rules specify static FFmpeg 8.1.2 plus zlib 1.3.2, GSM 1.0.13, OpenJPEG 2.5.4, and MinGW-w64 14.0.0 winpthreads for the Windows FFmpeg build. The selected VLC plugins also use libsamplerate 0.1.9 and FreeType 2.14.3; the rules require GPL mode for these dependencies.
 - The VLC runtime archive is pinned and hash-verified by `tools/prepare_vlc_runtime.ps1`. The Windows package includes the runtime license texts and this plugin license review.
 
+## Corresponding Source
+
+The corresponding VLC 3.0.24 source is available from the versioned [VideoLAN source tree](https://code.videolan.org/videolan/vlc/-/tree/3.0.24). This review maps each selected plugin to its upstream module, and is included in the binary package as `licenses/VLC/PLUGIN_LICENSES.md`; the package also includes the GPL and LGPL texts. The VLC source archive is not duplicated as a separate RA2AYRMB release asset.
+
 ## Reviewed Build Components
 
 | Component | Version | License notes |

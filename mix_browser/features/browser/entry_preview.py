@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import math
 from functools import lru_cache
 from html import escape
 
 from PySide6.QtCore import (
     QAbstractTableModel,
+    QEvent,
+    QItemSelectionModel,
     QModelIndex,
     QPointF,
     QRect,
@@ -21,12 +24,14 @@ from PySide6.QtGui import (
     QIcon,
     QImage,
     QMatrix4x4,
+    QMouseEvent,
     QOpenGLContext,
     QOpenGLFunctions,
     QPainter,
     QPalette,
     QPen,
     QPixmap,
+    QWheelEvent,
     QStandardItem,
     QStandardItemModel,
     QVector3D,
@@ -57,18 +62,26 @@ from PySide6.QtWidgets import (
     QScrollBar,
     QSlider,
     QStackedWidget,
+    QStyle,
+    QStyleOptionComboBox,
+    QStyleOptionViewItem,
+    QStylePainter,
+    QStyledItemDelegate,
     QTableView,
+    QTreeView,
     QTextBrowser,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid as is_qobject_valid
 
 from mix_browser.features.archive.dat_format import DatRecord
 from mix_browser.features.browser.asset_preview import (
     EntryPreviewResult,
     PALETTE_GROUPS,
     PALETTE_SELECTION_STAGES,
+    PALETTE_USE_GROUPS,
     PaletteOption,
     VoxelModel,
     indexed_frame_image,
@@ -96,6 +109,199 @@ _GL_LEQUAL = 0x0203
 _GL_DEPTH_BUFFER_BIT = 0x00000100
 _GL_FLOAT = 0x1406
 _GL_TRIANGLES = 0x0004
+
+
+# @arch mix-browser.palette-choice-control component | en: Displays a selected palette and opens the palette tree | zh: 显示当前色盘并打开色盘树
+class _PaletteComboBox(QComboBox):
+    palette_step_requested = Signal(int)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._display_text = ""
+        self._popup_open_on_press: bool | None = None
+        self._wheel_delta_remainder = 0
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._popup_open_on_press = self.view().isVisible()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        popup_open_on_press = self._popup_open_on_press
+        self._popup_open_on_press = None
+        super().mouseReleaseEvent(event)
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and popup_open_on_press is not None
+            and self.rect().contains(event.position().toPoint())
+        ):
+            should_be_open = not popup_open_on_press
+            if self.view().isVisible() != should_be_open:
+                if should_be_open:
+                    self.showPopup()
+                else:
+                    self.hidePopup()
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        delta = event.angleDelta().y() or event.pixelDelta().y()
+        if not delta:
+            event.ignore()
+            return
+        self._wheel_delta_remainder += delta
+        steps = int(self._wheel_delta_remainder / 120)
+        self._wheel_delta_remainder -= steps * 120
+        if steps:
+            self.palette_step_requested.emit(-steps)
+        event.accept()
+
+    def set_display_text(self, text: str) -> None:
+        self.setToolTip(text)
+        if text == self._display_text:
+            return
+        self._display_text = text
+        self.setAccessibleName(text or self.tr("Palette"))
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        option = QStyleOptionComboBox()
+        self.initStyleOption(option)
+        text_rect = self.style().subControlRect(
+            QStyle.ComplexControl.CC_ComboBox,
+            option,
+            QStyle.SubControl.SC_ComboBoxEditField,
+            self,
+        )
+        arrow_rect = self.style().subControlRect(
+            QStyle.ComplexControl.CC_ComboBox,
+            option,
+            QStyle.SubControl.SC_ComboBoxArrow,
+            self,
+        )
+        frame_width = self.style().pixelMetric(
+            QStyle.PixelMetric.PM_ComboBoxFrameWidth,
+            option,
+            self,
+        )
+        text_width = max(
+            0,
+            min(text_rect.right() + 1, arrow_rect.left())
+            - text_rect.left()
+            - frame_width
+            - 6,
+        )
+        option.currentText = self.fontMetrics().elidedText(
+            self._display_text,
+            Qt.TextElideMode.ElideRight,
+            text_width,
+        )
+        painter = QStylePainter(self)
+        painter.drawComplexControl(QStyle.ComplexControl.CC_ComboBox, option)
+        painter.drawControl(QStyle.ControlElement.CE_ComboBoxLabel, option)
+
+
+class _PaletteTreeView(QTreeView):
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        index = self.indexAt(event.position().toPoint())
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._is_expandable_group(index)
+        ):
+            self.setExpanded(index, not self.isExpanded(index))
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if self._is_expandable_group(self.indexAt(event.position().toPoint())):
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if self._is_expandable_group(self.indexAt(event.position().toPoint())):
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def _is_expandable_group(self, index: QModelIndex) -> bool:
+        model = self.model()
+        return (
+            index.isValid()
+            and model is not None
+            and model.rowCount(index) > 0
+            and not index.flags() & Qt.ItemFlag.ItemIsSelectable
+        )
+
+
+class _PaletteTreeItemDelegate(QStyledItemDelegate):
+    def __init__(self, view: QTreeView) -> None:
+        super().__init__(view)
+        self._view = view
+        self._viewport = view.viewport()
+        self._hovered_index = QModelIndex()
+        view.setMouseTracking(True)
+        self._viewport.setMouseTracking(True)
+        self._viewport.installEventFilter(self)
+        model = view.model()
+        if model is not None:
+            model.modelReset.connect(self._on_model_reset)
+
+    def eventFilter(self, watched, event) -> bool:
+        if not is_qobject_valid(self) or not is_qobject_valid(self._view):
+            return False
+        if watched is self._viewport:
+            if not is_qobject_valid(self._viewport):
+                return False
+            if event.type() == QEvent.Type.MouseMove and isinstance(
+                event, QMouseEvent
+            ):
+                index = self._view.indexAt(event.position().toPoint())
+                if (
+                    not index.isValid()
+                    or not index.flags() & Qt.ItemFlag.ItemIsSelectable
+                ):
+                    index = QModelIndex()
+                self._set_hovered_index(index)
+            elif event.type() == QEvent.Type.Leave:
+                self._set_hovered_index(QModelIndex())
+            return False
+        return super().eventFilter(watched, event)
+
+    def paint(self, painter, option, index: QModelIndex) -> None:
+        item_option = QStyleOptionViewItem(option)
+        self.initStyleOption(item_option, index)
+        if not index.flags() & Qt.ItemFlag.ItemIsSelectable:
+            item_option.state &= ~(
+                QStyle.StateFlag.State_Selected
+                | QStyle.StateFlag.State_MouseOver
+            )
+        elif index == self._hovered_index:
+            item_option.state |= QStyle.StateFlag.State_MouseOver
+        else:
+            item_option.state &= ~QStyle.StateFlag.State_MouseOver
+        super().paint(painter, item_option, index)
+
+    def _set_hovered_index(self, index: QModelIndex) -> None:
+        if not is_qobject_valid(self._view) or not is_qobject_valid(
+            self._viewport
+        ):
+            return
+        if index == self._hovered_index:
+            return
+        previous = self._hovered_index
+        self._hovered_index = index
+        if previous.isValid():
+            self._viewport.update(self._view.visualRect(previous))
+        if index.isValid():
+            self._viewport.update(self._view.visualRect(index))
+
+    def _on_model_reset(self) -> None:
+        if not is_qobject_valid(self._view) or not is_qobject_valid(
+            self._viewport
+        ):
+            return
+        self._hovered_index = QModelIndex()
+        self._viewport.update()
 
 
 @lru_cache(maxsize=1)
@@ -256,7 +462,7 @@ class _PaletteGrid(QWidget):
 
 
 class _ZoomableImageView(QGraphicsView):
-    zoom_requested = Signal(float)
+    zoom_requested = Signal(float, QPointF)
     _MIN_VISIBLE_PAN_PIXELS = 32.0
 
     def __init__(
@@ -279,7 +485,7 @@ class _ZoomableImageView(QGraphicsView):
         if delta == 0:
             super().wheelEvent(event)
             return
-        self.zoom_requested.emit(delta / 120)
+        self.zoom_requested.emit(delta / 120, event.position())
         event.accept()
 
     def mousePressEvent(self, event) -> None:
@@ -507,6 +713,12 @@ class _VoxelModelView(QOpenGLWidget):
     _CAMERA_ELEVATION_RATIO = 0.62
     _VERTICAL_FOV = 38.0
     _DEFAULT_YAW = -45.0
+    _OBLIQUE_VIEW = "oblique"
+    _FREE_ROTATION_VIEW = "free-rotation"
+    _DEFAULT_OBLIQUE_AZIMUTH = -45.0
+    _DEFAULT_OBLIQUE_ELEVATION = math.degrees(
+        math.atan(_CAMERA_ELEVATION_RATIO)
+    )
 
     def __init__(
         self,
@@ -526,8 +738,11 @@ class _VoxelModelView(QOpenGLWidget):
         self._frame_index = 0
         self._palette: PaletteOption | None = None
         self._zoom = 1.0
+        self._view_mode = self._OBLIQUE_VIEW
         self._yaw = 0.0
         self._pitch = 0.0
+        self._oblique_azimuth = self._DEFAULT_OBLIQUE_AZIMUTH
+        self._oblique_elevation = self._DEFAULT_OBLIQUE_ELEVATION
         self._pan_x = 0.0
         self._pan_y = 0.0
         self._drag_mode: str | None = None
@@ -614,6 +829,14 @@ class _VoxelModelView(QOpenGLWidget):
         self.zoom_changed.emit(zoom)
         self.update()
 
+    def set_view_mode(self, mode: str) -> None:
+        if mode not in {self._OBLIQUE_VIEW, self._FREE_ROTATION_VIEW}:
+            return
+        if mode == self._view_mode:
+            return
+        self._view_mode = mode
+        self.update()
+
     def reset_view(self) -> None:
         self._reset_orientation()
         self.set_zoom(1.0)
@@ -622,8 +845,29 @@ class _VoxelModelView(QOpenGLWidget):
     def _reset_orientation(self) -> None:
         self._yaw = self._DEFAULT_YAW
         self._pitch = 0.0
+        self._oblique_azimuth = self._DEFAULT_OBLIQUE_AZIMUTH
+        self._oblique_elevation = self._DEFAULT_OBLIQUE_ELEVATION
         self._pan_x = 0.0
         self._pan_y = 0.0
+
+    def _camera_position(self) -> QVector3D:
+        if self._view_mode == self._FREE_ROTATION_VIEW:
+            return QVector3D(
+                0.0,
+                -self._CAMERA_DISTANCE,
+                self._CAMERA_DISTANCE * self._CAMERA_ELEVATION_RATIO,
+            )
+        azimuth = math.radians(self._oblique_azimuth)
+        elevation = math.radians(self._oblique_elevation)
+        distance = self._CAMERA_DISTANCE * math.sqrt(
+            1.0 + self._CAMERA_ELEVATION_RATIO**2
+        )
+        horizontal_distance = distance * math.cos(elevation)
+        return QVector3D(
+            horizontal_distance * math.cos(azimuth),
+            horizontal_distance * math.sin(azimuth),
+            distance * math.sin(elevation),
+        )
 
     def initializeGL(self) -> None:
         context = self.context()
@@ -778,20 +1022,28 @@ class _VoxelModelView(QOpenGLWidget):
         aspect = max(1.0, self.width()) / max(1.0, self.height())
         projection = QMatrix4x4()
         projection.perspective(self._VERTICAL_FOV, aspect, 0.1, 100.0)
-        view = QMatrix4x4()
-        view.lookAt(
-            QVector3D(
-                0.0,
-                -self._CAMERA_DISTANCE,
-                self._CAMERA_DISTANCE * self._CAMERA_ELEVATION_RATIO,
-            ),
+        camera_up = QVector3D(0.0, 0.0, 1.0)
+        if self._view_mode == self._OBLIQUE_VIEW:
+            azimuth = math.radians(self._oblique_azimuth)
+            elevation = math.radians(self._oblique_elevation)
+            camera_up = QVector3D(
+                -math.sin(elevation) * math.cos(azimuth),
+                -math.sin(elevation) * math.sin(azimuth),
+                math.cos(elevation),
+            )
+        camera_view = QMatrix4x4()
+        camera_view.lookAt(
+            self._camera_position(),
             QVector3D(0.0, 0.0, 0.0),
-            QVector3D(0.0, 0.0, 1.0),
+            camera_up,
         )
-        view.translate(self._pan_x, self._pan_y, 0.0)
+        pan = QMatrix4x4()
+        pan.translate(self._pan_x, self._pan_y, 0.0)
+        view = pan * camera_view
         model = QMatrix4x4()
-        model.rotate(self._yaw, 0.0, 0.0, 1.0)
-        model.rotate(self._pitch, 1.0, 0.0, 0.0)
+        if self._view_mode == self._FREE_ROTATION_VIEW:
+            model.rotate(self._yaw, 0.0, 0.0, 1.0)
+            model.rotate(self._pitch, 1.0, 0.0, 0.0)
         model.scale(self._zoom)
         mvp = projection * view * model
 
@@ -899,8 +1151,32 @@ class _VoxelModelView(QOpenGLWidget):
         if not delta:
             event.ignore()
             return
-        self.set_zoom(self._zoom + delta / 120 * 0.1)
+        self.zoom_at(
+            self._zoom + delta / 120 * 0.1,
+            event.position(),
+        )
         event.accept()
+
+    def zoom_at(self, zoom: float, position: QPointF) -> None:
+        zoom = min(8.0, max(0.001, zoom))
+        if zoom == self._zoom:
+            return
+        scale_ratio = zoom / self._zoom
+        distance = self._camera_position().length()
+        world_per_pixel = (
+            2.0
+            * distance
+            * math.tan(math.radians(self._VERTICAL_FOV * 0.5))
+            / max(1, self.height())
+        )
+        offset = position - QPointF(self.width() * 0.5, self.height() * 0.5)
+        self._pan_x += (1.0 - scale_ratio) * (
+            offset.x() * world_per_pixel - self._pan_x
+        )
+        self._pan_y -= (1.0 - scale_ratio) * (
+            offset.y() * world_per_pixel + self._pan_y
+        )
+        self.set_zoom(zoom)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -921,16 +1197,27 @@ class _VoxelModelView(QOpenGLWidget):
         delta = event.position() - self._last_pointer
         self._last_pointer = event.position()
         if self._drag_mode == "rotate":
-            self._yaw = (self._yaw + delta.x() * 0.5) % 360.0
-            self._pitch = min(89.0, max(-89.0, self._pitch + delta.y() * 0.5))
+            if self._view_mode == self._OBLIQUE_VIEW:
+                self._oblique_azimuth = (
+                    self._oblique_azimuth - delta.x() * 0.5
+                ) % 360.0
+                self._oblique_elevation = min(
+                    90.0,
+                    max(-90.0, self._oblique_elevation + delta.y() * 0.5),
+                )
+            else:
+                self._yaw = (self._yaw + delta.x() * 0.5) % 360.0
+                self._pitch = min(
+                    89.0,
+                    max(-89.0, self._pitch + delta.y() * 0.5),
+                )
         else:
             viewport_height = max(1, self.height())
             world_per_pixel = (
                 2.0
-                * self._CAMERA_DISTANCE
-                * 0.3443
+                * self._camera_position().length()
+                * math.tan(math.radians(self._VERTICAL_FOV * 0.5))
                 / viewport_height
-                / max(self._zoom, 0.1)
             )
             self._pan_x += delta.x() * world_per_pixel
             self._pan_y -= delta.y() * world_per_pixel
@@ -956,6 +1243,9 @@ class EntryPreviewPane(QWidget):
     auto_play_preference_changed = Signal(str, bool)
     background_preference_changed = Signal(str, str)
     boundary_visibility_preference_changed = Signal(bool)
+    transparent_index_preference_changed = Signal(bool)
+    palette_use_categories_preference_changed = Signal(bool)
+    voxel_view_mode_preference_changed = Signal(str)
 
     # Keep VXL and HVA geometry in native game units with one shared view scale.
     _VXL_DEFAULT_DISPLAY_SCALE = 1.0
@@ -967,13 +1257,19 @@ class EntryPreviewPane(QWidget):
         *,
         renderer_resources: VoxelRendererResources | None = None,
         interaction_help: InteractionHelpCatalog | None = None,
+        palette_use_categories_enabled: bool = True,
+        voxel_view_mode: str = "oblique",
     ) -> None:
         super().__init__(parent)
         self.setMinimumWidth(280)
         self._result: EntryPreviewResult | None = None
         self._frame_index = 0
         self._palette_index = 0
+        self._palette_cycle_order: list[int] = []
+        self._palette_display_labels: dict[int, str] = {}
+        self._palette_model_indices: dict[int, QModelIndex] = {}
         self._palette_manually_selected = False
+        self._palette_use_categories_enabled = palette_use_categories_enabled
         self._image_zoom = 1.0
         self._auto_play_shp_animations = False
         self._auto_play_hva_animations = False
@@ -983,6 +1279,7 @@ class EntryPreviewPane(QWidget):
         self._preview_background_mode = "checkerboard"
         self._custom_background_color = "#00a000"
         self._asset_boundaries_visible = False
+        self._transparent_index_is_transparent = False
         self._is_active = False
         self._resume_animation_on_activate = False
         self._resume_media_on_activate = False
@@ -1069,11 +1366,50 @@ class EntryPreviewPane(QWidget):
         )
         self._palette_label = QLabel(self.tr("Palette"), self._image_controls)
         self._palette_label.setFixedHeight(BROWSER_TOOLBAR_CONTROL_HEIGHT)
-        self._palette_combo = QComboBox(self._image_controls)
+        self._palette_combo = _PaletteComboBox(self._image_controls)
         self._palette_combo.setFixedHeight(BROWSER_TOOLBAR_CONTROL_HEIGHT)
+        self._palette_combo.setMaxVisibleItems(16)
         self._palette_model = QStandardItemModel(self._palette_combo)
         self._palette_combo.setModel(self._palette_model)
-        self._palette_combo.currentIndexChanged.connect(self._select_palette)
+        self._palette_tree = _PaletteTreeView(self._palette_combo)
+        self._palette_tree.setHeaderHidden(True)
+        self._palette_tree.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self._palette_tree.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self._palette_tree.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self._palette_tree.setUniformRowHeights(True)
+        self._palette_tree.setTextElideMode(Qt.TextElideMode.ElideMiddle)
+        self._palette_combo.setView(self._palette_tree)
+        self._palette_tree.setItemDelegate(
+            _PaletteTreeItemDelegate(self._palette_tree)
+        )
+        self._palette_tree.clicked.connect(self._select_palette)
+        self._palette_tree.activated.connect(self._select_palette)
+        self._palette_combo.palette_step_requested.connect(self._step_palette)
+        self._palette_use_categories_checkbox = QCheckBox(
+            self.tr("By use"),
+            self._image_controls,
+        )
+        self._palette_use_categories_checkbox.setFixedHeight(
+            BROWSER_TOOLBAR_CONTROL_HEIGHT
+        )
+        self._palette_use_categories_checkbox.setChecked(
+            self._palette_use_categories_enabled
+        )
+        self._palette_use_categories_checkbox.setToolTip(
+            self.tr("Group palette candidates by use")
+        )
+        self._palette_use_categories_checkbox.setAccessibleName(
+            self.tr("Group palette candidates by use")
+        )
+        self._palette_use_categories_checkbox.toggled.connect(
+            self._on_palette_use_categories_toggled
+        )
         self._palette_help_button = QToolButton(self._image_controls)
         self._palette_help_button.setText(self.tr("?"))
         self._palette_help_button.setFixedSize(
@@ -1088,6 +1424,7 @@ class EntryPreviewPane(QWidget):
         controls_layout.addWidget(self._play_button)
         controls_layout.addWidget(self._palette_label)
         controls_layout.addWidget(self._palette_combo, 1)
+        controls_layout.addWidget(self._palette_use_categories_checkbox)
         controls_layout.addWidget(self._palette_help_button)
         image_layout.addWidget(self._image_controls)
         image_layout.addWidget(self._image_notice)
@@ -1117,6 +1454,33 @@ class EntryPreviewPane(QWidget):
         zoom_layout.addWidget(self._zoom_level_label)
         zoom_layout.addWidget(self._zoom_in_button)
         zoom_layout.addWidget(self._zoom_reset_button)
+        self._voxel_view_mode_combo = QComboBox(self._image_page)
+        self._voxel_view_mode_combo.setFixedSize(
+            116,
+            BROWSER_TOOLBAR_CONTROL_HEIGHT,
+        )
+        self._voxel_view_mode_combo.addItem(
+            self.tr("Orbit view"),
+            _VoxelModelView._OBLIQUE_VIEW,
+        )
+        self._voxel_view_mode_combo.addItem(
+            self.tr("Free rotation"),
+            _VoxelModelView._FREE_ROTATION_VIEW,
+        )
+        self._voxel_view_mode_combo.setToolTip(
+            self.tr("Choose how to navigate VXL and HVA model previews.")
+        )
+        self._voxel_view_mode_combo.setAccessibleName(self.tr("Model view"))
+        initial_view_mode_index = self._voxel_view_mode_combo.findData(
+            voxel_view_mode
+        )
+        if initial_view_mode_index >= 0:
+            self._voxel_view_mode_combo.setCurrentIndex(initial_view_mode_index)
+        self._voxel_view_mode_combo.currentIndexChanged.connect(
+            self._select_voxel_view_mode
+        )
+        zoom_layout.addWidget(self._voxel_view_mode_combo)
+        self._voxel_view_mode_combo.hide()
         self._interaction_help_button = (
             InteractionHelpButton(
                 interaction_help,
@@ -1158,7 +1522,7 @@ class EntryPreviewPane(QWidget):
         self._image_view.setDragMode(QGraphicsView.DragMode.NoDrag)
         self._image_view.setInteractive(False)
         self._image_view.setTransformationAnchor(
-            QGraphicsView.ViewportAnchor.AnchorViewCenter
+            QGraphicsView.ViewportAnchor.NoAnchor
         )
         self._image_view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self._image_view.zoom_requested.connect(self._zoom_image_at_cursor)
@@ -1168,8 +1532,14 @@ class EntryPreviewPane(QWidget):
             renderer_resources,
         )
         self._voxel_view.zoom_changed.connect(self._sync_voxel_zoom)
+        self._voxel_view.set_view_mode(voxel_view_mode)
         self._voxel_view.hide()
         image_layout.addWidget(self._voxel_view, 1)
+        self._frame_notice = QLabel(self._image_page)
+        self._frame_notice.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._frame_notice.setWordWrap(True)
+        self._frame_notice.hide()
+        image_layout.addWidget(self._frame_notice)
 
         self._palette_page = QWidget(self)
         palette_layout = QVBoxLayout(self._palette_page)
@@ -1292,10 +1662,27 @@ class EntryPreviewPane(QWidget):
         self._asset_boundaries_checkbox.toggled.connect(
             self._on_asset_boundaries_toggled
         )
+        self._transparent_index_checkbox = QCheckBox(
+            self.tr("Transparent index"),
+            self._background_controls,
+        )
+        self._transparent_index_checkbox.setFixedHeight(
+            BROWSER_TOOLBAR_CONTROL_HEIGHT
+        )
+        self._transparent_index_checkbox.setToolTip(
+            self.tr(
+                "When checked, the format-defined transparent palette index is transparent; when unchecked, its palette color is shown."
+            )
+        )
+        self._transparent_index_checkbox.setChecked(False)
+        self._transparent_index_checkbox.toggled.connect(
+            self._on_transparent_index_toggled
+        )
         background_layout.addWidget(self._background_label)
         background_layout.addWidget(self._background_combo)
         background_layout.addWidget(self._background_color_button)
         background_layout.addWidget(self._asset_boundaries_checkbox)
+        background_layout.addWidget(self._transparent_index_checkbox)
         background_layout.addStretch(1)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -1353,9 +1740,26 @@ class EntryPreviewPane(QWidget):
         )
         self._update_image_boundary_visibility()
 
+    def set_transparent_index_transparent(self, transparent: bool) -> None:
+        transparent = bool(transparent)
+        if transparent == self._transparent_index_is_transparent:
+            return
+        self._transparent_index_is_transparent = transparent
+        blocker = QSignalBlocker(self._transparent_index_checkbox)
+        self._transparent_index_checkbox.setChecked(
+            self._transparent_index_is_transparent
+        )
+        del blocker
+        if self._result is not None and self._result.is_shp:
+            self._refresh_image()
+
     def _on_asset_boundaries_toggled(self, visible: bool) -> None:
         self.set_asset_boundaries_visible(visible)
         self.boundary_visibility_preference_changed.emit(bool(visible))
+
+    def _on_transparent_index_toggled(self, transparent: bool) -> None:
+        self.set_transparent_index_transparent(transparent)
+        self.transparent_index_preference_changed.emit(bool(transparent))
 
     def _select_preview_background(self, index: int) -> None:
         mode = self._background_combo.itemData(index)
@@ -1408,8 +1812,15 @@ class EntryPreviewPane(QWidget):
             or result.voxel_model is not None
             or (result.kind == "media" and result.is_video)
         )
+        has_transparent_index = bool(
+            result is not None
+            and result.is_shp
+            and result.frames
+            and result.palettes
+        )
         self._background_controls.setVisible(supported)
         self._asset_boundaries_checkbox.setVisible(has_boundaries)
+        self._transparent_index_checkbox.setVisible(has_transparent_index)
 
     def _create_auto_play_checkbox(
         self,
@@ -1659,6 +2070,7 @@ class EntryPreviewPane(QWidget):
         is_voxel_model = result.voxel_model is not None
         self._image_view.setVisible(not is_voxel_model)
         self._voxel_view.setVisible(is_voxel_model)
+        self._voxel_view_mode_combo.setVisible(is_voxel_model)
         image_notices = tuple(
             self.tr(notice)
             for notice in (result.preview_notice, result.message)
@@ -1789,16 +2201,19 @@ class EntryPreviewPane(QWidget):
         has_frames = bool(result.frames)
         signal_blocker = QSignalBlocker(self._palette_combo)
         self._palette_model.clear()
-        self._palette_combo.clear()
-        previous_group: str | None = None
+        grouped_entries: dict[str, list[tuple[int, str, tuple[str, ...]]]] = {}
+        cycle_order: list[int] = []
+        seen_palette_indices: set[int] = set()
+        palette_display_labels: dict[int, str] = {}
+        palette_model_indices: dict[int, QModelIndex] = {}
+        selected_item: QStandardItem | None = None
+        selected_label = ""
         group_labels = {key: self.tr(label) for key, label in PALETTE_GROUPS}
-        group_labels["other"] = group_labels["game"]
+        use_labels = {key: self.tr(label) for key, label in PALETTE_USE_GROUPS}
         for index, palette in enumerate(result.palettes):
-            group = palette.group if palette.group in group_labels else "game"
-            if group != previous_group:
-                group_item = QStandardItem(self.tr("- {0} -").format(group_labels[group]))
-                group_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-                self._palette_model.appendRow(group_item)
+            group = palette.group
+            if group == "other" or group not in group_labels:
+                group = "game"
             source = palette.source
             if source.startswith("User library: "):
                 source = self.tr("User library: {0}").format(source[len("User library: "):])
@@ -1807,19 +2222,143 @@ class EntryPreviewPane(QWidget):
             elif source:
                 source = self.tr(source)
             palette_name = self.tr("Grayscale") if palette.group == "fallback" else palette.name
+            use_categories = tuple(
+                category
+                for category, _label in PALETTE_USE_GROUPS
+                if category != "other" and category in palette.use_categories
+            )
+            if len(use_categories) > 1:
+                palette_name = self.tr("{0} (multiple uses)").format(palette_name)
             label = f"{palette_name} ({source})" if source else palette_name
-            self._palette_combo.addItem(label, index)
-            previous_group = group
-        selected_combo_index = self._palette_combo.findData(self._palette_index)
-        if selected_combo_index >= 0:
-            self._palette_combo.setCurrentIndex(selected_combo_index)
+            palette_display_labels[index] = label
+            grouped_entries.setdefault(group, []).append(
+                (index, label, use_categories)
+            )
+
+        for group, _group_label in PALETTE_GROUPS:
+            entries = grouped_entries.get(group)
+            if not entries:
+                continue
+            group_item = QStandardItem(group_labels[group])
+            group_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            self._palette_model.appendRow(group_item)
+            sorted_entries = sorted(
+                entries,
+                key=lambda entry: (entry[1].casefold(), entry[1]),
+            )
+            if not self._palette_use_categories_enabled:
+                for index, label, _uses in sorted_entries:
+                    palette_item = QStandardItem(label)
+                    palette_item.setData(index, Qt.ItemDataRole.UserRole)
+                    group_item.appendRow(palette_item)
+                    palette_model_indices.setdefault(index, palette_item.index())
+                    if index not in seen_palette_indices:
+                        cycle_order.append(index)
+                        seen_palette_indices.add(index)
+                    if index == self._palette_index:
+                        selected_item = palette_item
+                        selected_label = label
+                continue
+
+            categorized_entries: dict[str, list[tuple[int, str]]] = {}
+            for index, label, uses in sorted_entries:
+                categories = uses or ("other",)
+                for category in categories:
+                    categorized_entries.setdefault(category, []).append(
+                        (index, label)
+                    )
+            for category, _label in PALETTE_USE_GROUPS:
+                category_entries = categorized_entries.get(category)
+                if not category_entries:
+                    continue
+                category_item = QStandardItem(use_labels[category])
+                category_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                group_item.appendRow(category_item)
+                for index, label in category_entries:
+                    palette_item = QStandardItem(label)
+                    palette_item.setData(index, Qt.ItemDataRole.UserRole)
+                    category_item.appendRow(palette_item)
+                    palette_model_indices.setdefault(index, palette_item.index())
+                    if index not in seen_palette_indices:
+                        cycle_order.append(index)
+                        seen_palette_indices.add(index)
+                    if index == self._palette_index:
+                        selected_item = palette_item
+                        selected_label = label
+        self._palette_cycle_order = cycle_order
+        self._palette_display_labels = palette_display_labels
+        self._palette_model_indices = palette_model_indices
+        self._palette_tree.expandAll()
+        if selected_item is not None:
+            selected_index = selected_item.index()
+            self._palette_tree.setCurrentIndex(selected_index)
+            self._palette_tree.selectionModel().select(
+                selected_index,
+                QItemSelectionModel.SelectionFlag.ClearAndSelect
+                | QItemSelectionModel.SelectionFlag.Rows,
+            )
+            self._palette_tree.scrollTo(
+                selected_index,
+                QAbstractItemView.ScrollHint.PositionAtCenter,
+            )
+        self._palette_combo.set_display_text(selected_label)
+        self._palette_tree.setMinimumWidth(0)
+        self._palette_tree.resizeColumnToContents(0)
+        popup_width = (
+            self._palette_tree.columnWidth(0)
+            + 2 * self._palette_tree.frameWidth()
+            + self._palette_tree.verticalScrollBar().sizeHint().width()
+            + 12
+        )
+        self._palette_tree.setMinimumWidth(
+            max(self._palette_combo.width(), popup_width)
+        )
         del signal_blocker
         has_palette_choice = len(result.palettes) > 0
         self._palette_label.setVisible(has_palette_choice)
         self._palette_combo.setVisible(has_palette_choice)
+        self._palette_use_categories_checkbox.setVisible(has_palette_choice)
         self._palette_help_button.setVisible(has_palette_choice)
         self._palette_combo.setEnabled(len(result.palettes) > 1)
         self._image_controls.setVisible(has_frames or has_palette_choice)
+
+    def set_palette_use_categories_enabled(self, enabled: bool) -> None:
+        if self._palette_use_categories_enabled == enabled:
+            return
+        self._palette_use_categories_enabled = enabled
+        blocker = QSignalBlocker(self._palette_use_categories_checkbox)
+        self._palette_use_categories_checkbox.setChecked(enabled)
+        del blocker
+        result = self._result
+        if result is not None and result.kind in {"image", "model"}:
+            self._populate_palette_choices(result, self._palette_index)
+
+    def set_voxel_view_mode(self, mode: str) -> None:
+        if mode not in {
+            _VoxelModelView._OBLIQUE_VIEW,
+            _VoxelModelView._FREE_ROTATION_VIEW,
+        }:
+            mode = _VoxelModelView._OBLIQUE_VIEW
+        blocker = QSignalBlocker(self._voxel_view_mode_combo)
+        index = self._voxel_view_mode_combo.findData(mode)
+        if index >= 0:
+            self._voxel_view_mode_combo.setCurrentIndex(index)
+        del blocker
+        self._voxel_view.set_view_mode(mode)
+
+    def _select_voxel_view_mode(self, index: int) -> None:
+        mode = self._voxel_view_mode_combo.itemData(index)
+        if mode not in {
+            _VoxelModelView._OBLIQUE_VIEW,
+            _VoxelModelView._FREE_ROTATION_VIEW,
+        }:
+            return
+        self._voxel_view.set_view_mode(mode)
+        self.voxel_view_mode_preference_changed.emit(mode)
+
+    def _on_palette_use_categories_toggled(self, enabled: bool) -> None:
+        self.set_palette_use_categories_enabled(enabled)
+        self.palette_use_categories_preference_changed.emit(enabled)
 
     @staticmethod
     def _normalized_palette_index(
@@ -1871,11 +2410,14 @@ class EntryPreviewPane(QWidget):
             self._refresh_image()
 
     def show_palette_lookup_failure(self) -> None:
-        if self.tr("Checking configured game palettes...") not in self._image_notice.text():
+        result = self._result
+        if result is None or result.kind not in {"image", "model"}:
             return
-        notices = []
-        if self._result is not None and self._result.preview_notice:
-            notices.append(self.tr(self._result.preview_notice))
+        notices = [
+            self.tr(notice)
+            for notice in (result.preview_notice, result.message)
+            if notice and notice != "Checking configured game palettes..."
+        ]
         notices.append(
             self.tr("Game palettes could not be loaded; the current palette is shown.")
         )
@@ -1886,16 +2428,30 @@ class EntryPreviewPane(QWidget):
         dialog.setWindowTitle(self.tr("Palette Selection"))
         dialog.resize(760, 620)
         dialog.setMinimumSize(560, 360)
+
+        def render_stage(stage) -> str:
+            detail_arguments = dict(stage.detail_format_arguments)
+            details = []
+            for index, detail in enumerate(stage.details):
+                translated_detail = self.tr(detail)
+                arguments = detail_arguments.get(index)
+                if arguments is not None:
+                    translated_detail = translated_detail.format(*arguments)
+                details.append(f"<li>{escape(translated_detail)}</li>")
+            return (
+                f"<li><b>{escape(self.tr(stage.title))}</b><ul>"
+                f"{''.join(details)}</ul></li>"
+            )
+
         stage_items = "".join(
-            "<li><b>"
-            + escape(self.tr(stage.title))
-            + "</b><ul>"
-            + "".join(f"<li>{escape(self.tr(detail))}</li>" for detail in stage.details)
-            + "</ul></li>"
-            for stage in PALETTE_SELECTION_STAGES
+            render_stage(stage) for stage in PALETTE_SELECTION_STAGES
         )
         group_titles = ", ".join(
-            f"<code>- {escape(self.tr(title))} -</code>" for _, title in PALETTE_GROUPS
+            f"<code>{escape(self.tr(title))}</code>" for _, title in PALETTE_GROUPS
+        )
+        use_group_titles = ", ".join(
+            f"<code>{escape(self.tr(title))}</code>"
+            for _, title in PALETTE_USE_GROUPS
         )
         help_browser = QTextBrowser(dialog)
         help_browser.setOpenExternalLinks(False)
@@ -1907,8 +2463,14 @@ class EntryPreviewPane(QWidget):
             f"<p><b>{escape(self.tr('Candidate list groups, in display order:'))}</b> {group_titles}. "
             f"{escape(self.tr('The first group contains the always-available grayscale palette.'))} "
             f"{escape(self.tr('The candidate list order is separate from automatic selection priority.'))}</p>"
+            f"<p><b>{escape(self.tr('Use categories, in display order:'))}</b> {use_group_titles}. "
+            f"{escape(self.tr('Use categories follow Art references and built-in palette rules; candidates without a recognized use appear under Other or Unclassified.'))} "
+            f"{escape(self.tr('A palette with more than one identified use appears in every matching category and is marked as multiple uses.'))}</p>"
         )
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dialog)
+        close_button = buttons.button(QDialogButtonBox.StandardButton.Close)
+        if close_button is not None:
+            close_button.setText(self.tr("Close"))
         buttons.rejected.connect(dialog.reject)
         naming_guide = buttons.addButton(
             self.tr("Asset Filename Guide..."),
@@ -1926,6 +2488,26 @@ class EntryPreviewPane(QWidget):
         result = self._result
         if result is None:
             return
+        empty_frame = False
+        if result.is_shp and result.frames:
+            frame_count = self._display_frame_count(result)
+            if frame_count > 0:
+                frame_index = min(max(self._frame_index, 0), frame_count - 1)
+                displayed_frames = [result.frames[frame_index]]
+                if (
+                    self._combine_shp_shadow_frames
+                    and len(result.frames) % 2 == 0
+                ):
+                    displayed_frames.append(
+                        result.frames[len(result.frames) // 2 + frame_index]
+                    )
+                empty_frame = all(frame.is_empty for frame in displayed_frames)
+        self._frame_notice.setText(
+            self.tr("The selected SHP frame is empty and contains no image data.")
+            if empty_frame
+            else ""
+        )
+        self._frame_notice.setVisible(empty_frame)
         if result.voxel_model is not None:
             self._image_boundary.hide()
             self._image_boundary_shadow.hide()
@@ -1958,13 +2540,13 @@ class EntryPreviewPane(QWidget):
                 image = indexed_frame_image(
                     shadow,
                     palette,
-                    transparent_zero=True,
+                    transparent_zero=self._transparent_index_is_transparent,
                     shadow_mask=True,
                 ).convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
                 frame_image = indexed_frame_image(
                     frame,
                     palette,
-                    transparent_zero=True,
+                    transparent_zero=self._transparent_index_is_transparent,
                 )
                 painter = QPainter(image)
                 painter.drawImage(0, 0, frame_image)
@@ -1973,7 +2555,7 @@ class EntryPreviewPane(QWidget):
                 image = indexed_frame_image(
                     result.frames[self._frame_index],
                     palette,
-                    transparent_zero=True,
+                    transparent_zero=self._transparent_index_is_transparent,
                 )
         else:
             image = QImage()
@@ -1999,37 +2581,50 @@ class EntryPreviewPane(QWidget):
         self._image_boundary.setVisible(visible)
         self._image_boundary_shadow.setVisible(visible)
 
-    def _step_image_zoom(self, steps: float) -> None:
+    def _step_image_zoom(
+        self,
+        steps: float,
+        anchor: QPointF | None = None,
+    ) -> None:
         zoom = min(
             8.0,
             max(self._MIN_IMAGE_ZOOM, self._image_zoom + steps * 0.1),
         )
         if zoom == self._image_zoom:
             return
-        self._apply_image_zoom(zoom)
+        self._apply_image_zoom(zoom, anchor)
 
-    def _apply_image_zoom(self, zoom: float) -> None:
+    def _apply_image_zoom(
+        self,
+        zoom: float,
+        anchor: QPointF | None = None,
+    ) -> None:
         self._default_fit_pending = False
         if self._result is not None and self._result.voxel_model is not None:
             self._voxel_view.set_zoom(zoom)
             self._image_zoom = zoom
             self._sync_image_zoom_controls()
             return
+        if anchor is None:
+            anchor = QPointF(self._image_view.viewport().rect().center())
+        anchor_point = anchor.toPoint()
+        image_point = self._image_item.mapFromScene(
+            self._image_view.mapToScene(anchor_point)
+        )
         scale_factor = zoom / self._image_zoom
         self._image_view.scale(scale_factor, scale_factor)
+        mapped_anchor = self._image_view.mapFromScene(
+            self._image_item.mapToScene(image_point)
+        )
+        offset = anchor - QPointF(mapped_anchor)
+        scale_x = max(abs(self._image_view.transform().m11()), 0.001)
+        scale_y = max(abs(self._image_view.transform().m22()), 0.001)
+        self._image_item.moveBy(offset.x() / scale_x, offset.y() / scale_y)
         self._image_zoom = zoom
         self._sync_image_zoom_controls()
 
-    def _zoom_image_at_cursor(self, steps: float) -> None:
-        self._image_view.setTransformationAnchor(
-            QGraphicsView.ViewportAnchor.AnchorUnderMouse
-        )
-        try:
-            self._step_image_zoom(steps)
-        finally:
-            self._image_view.setTransformationAnchor(
-                QGraphicsView.ViewportAnchor.AnchorViewCenter
-            )
+    def _zoom_image_at_cursor(self, steps: float, position: QPointF) -> None:
+        self._step_image_zoom(steps, position)
 
     def _reset_image_zoom(self) -> None:
         self._default_fit_pending = False
@@ -2131,16 +2726,68 @@ class EntryPreviewPane(QWidget):
         self._frame_index = index
         self._refresh_image()
 
-    def _select_palette(self, index: int) -> None:
+    def _select_palette(self, index: QModelIndex) -> None:
+        palette_index = index.data(Qt.ItemDataRole.UserRole)
+        palette_label = index.data(Qt.ItemDataRole.DisplayRole)
+        self._apply_palette_choice(
+            palette_index,
+            str(palette_label or ""),
+            close_popup=True,
+        )
+
+    def _step_palette(self, step: int) -> None:
+        if not self._palette_cycle_order:
+            return
+        try:
+            current_position = self._palette_cycle_order.index(self._palette_index)
+        except ValueError:
+            current_position = 0
+        target_position = min(
+            max(current_position + step, 0),
+            len(self._palette_cycle_order) - 1,
+        )
+        if target_position == current_position:
+            return
+        palette_index = self._palette_cycle_order[target_position]
+        self._apply_palette_choice(
+            palette_index,
+            self._palette_display_labels[palette_index],
+            close_popup=False,
+        )
+
+    def _apply_palette_choice(
+        self,
+        palette_index: object,
+        palette_label: str,
+        *,
+        close_popup: bool,
+    ) -> None:
         result = self._result
-        palette_index = self._palette_combo.itemData(index)
         if (
             result is None
             or not isinstance(palette_index, int)
             or not 0 <= palette_index < len(result.palettes)
         ):
             return
+        self._palette_combo.set_display_text(palette_label)
+        tree_index = self._palette_model_indices.get(palette_index)
+        if tree_index is not None and tree_index.isValid():
+            self._palette_tree.setCurrentIndex(tree_index)
+            self._palette_tree.selectionModel().select(
+                tree_index,
+                QItemSelectionModel.SelectionFlag.ClearAndSelect
+                | QItemSelectionModel.SelectionFlag.Rows,
+            )
+            if self._palette_tree.isVisible():
+                self._palette_tree.scrollTo(
+                    tree_index,
+                    QAbstractItemView.ScrollHint.PositionAtCenter,
+                )
+        if close_popup:
+            self._palette_combo.hidePopup()
         self._palette_manually_selected = True
+        if palette_index == self._palette_index:
+            return
         self._palette_index = palette_index
         palette = result.palettes[palette_index]
         if (

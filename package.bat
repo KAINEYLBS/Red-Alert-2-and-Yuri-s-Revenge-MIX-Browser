@@ -140,6 +140,11 @@ if not exist "dist\RA2AYRMB\_internal\PySide6\plugins\styles\qmodernwindowsstyle
     set "EXIT_CODE=1"
     goto :finish
 )
+if exist "dist\RA2AYRMB\_internal\setuptools\_vendor\jaraco\text\Lorem ipsum.txt" (
+    echo Packaging included an unused setuptools Lorem ipsum sample file.
+    set "EXIT_CODE=1"
+    goto :finish
+)
 
 set "VLC_DIST=%~dp0dist\RA2AYRMB\vlc"
 set "VLC_COPY_SCRIPT=%~dp0tools\copy_vlc_runtime.ps1"
@@ -211,15 +216,28 @@ for /d %%D in (.venv\Lib\site-packages\python_vlc-*.dist-info) do (
 if not defined PYTHON_VLC_LICENSE_FOUND goto :license_copy_failed
 if not exist "%LICENSE_ROOT%\python-vlc\COPYING" goto :license_copy_failed
 
+set "PYINSTALLER_LICENSE_FOUND="
+for /d %%D in (.venv\Lib\site-packages\pyinstaller-*.dist-info) do (
+    if exist "%%D\licenses\COPYING.txt" (
+        if not exist "%LICENSE_ROOT%\PyInstaller" mkdir "%LICENSE_ROOT%\PyInstaller"
+        if errorlevel 1 goto :license_copy_failed
+        copy /b "%%D\licenses\COPYING.txt" "%LICENSE_ROOT%\PyInstaller\COPYING.txt" >nul
+        if errorlevel 1 goto :license_copy_failed
+        set "PYINSTALLER_LICENSE_FOUND=1"
+    )
+)
+if not defined PYINSTALLER_LICENSE_FOUND goto :license_copy_failed
+if not exist "%LICENSE_ROOT%\PyInstaller\COPYING.txt" goto :license_copy_failed
+
 if not exist "%LICENSE_ROOT%\VLC" mkdir "%LICENSE_ROOT%\VLC"
 if errorlevel 1 goto :license_copy_failed
 copy /b "%VLC_RUNTIME%\COPYING.txt" "%LICENSE_ROOT%\VLC\COPYING.txt" >nul
 if errorlevel 1 goto :license_copy_failed
 copy /b "%VLC_RUNTIME%\README.txt" "%LICENSE_ROOT%\VLC\README.txt" >nul
 if errorlevel 1 goto :license_copy_failed
-robocopy "%~dp0docs\licenses" "%LICENSE_ROOT%" /E /R:1 /W:1 /XD __pycache__ /XF *.pyc *.pyo >nul
+robocopy "%~dp0docs\licenses" "%LICENSE_ROOT%" /E /R:1 /W:1 /XD __pycache__ PyInstaller /XF *.pyc *.pyo >nul
 if errorlevel 8 goto :license_copy_failed
-for %%F in (Mesa\MIT.txt Mesa\Khronos.txt Mesa\Boost-1.0.txt LLVM\LICENSE.TXT CFFI\LICENSE pycparser\LICENSE VLC\COPYING.LIB Lucide\ISC.txt) do (
+for %%F in (OpenSSL\LICENSE.txt Mesa\MIT.txt Mesa\Khronos.txt Mesa\Boost-1.0.txt LLVM\LICENSE.TXT CFFI\LICENSE pycparser\LICENSE VLC\COPYING.LIB Lucide\ISC.txt) do (
     if not exist "%LICENSE_ROOT%\%%F" goto :license_copy_failed
 )
 copy /b "%~dp0docs\vlc_runtime_licenses.md" "%LICENSE_ROOT%\VLC\PLUGIN_LICENSES.md" >nul

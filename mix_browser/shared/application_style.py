@@ -171,11 +171,18 @@ class _ApplicationTableInteractionPolicy(QObject):
 
         minimum = max(header.minimumSectionSize(), 1)
         maximum = max(header.maximumSectionSize(), minimum)
+        minimums = {
+            section: min(
+                max(minimum, header.sectionSizeHint(section)),
+                maximum,
+            )
+            for section in sections
+        }
         viewport_width = view.viewport().width()
         if viewport_width <= 0:
             return
         target = min(
-            max(viewport_width, minimum * len(sections)),
+            max(viewport_width, sum(minimums.values())),
             maximum * len(sections),
         )
         weights = {
@@ -191,8 +198,8 @@ class _ApplicationTableInteractionPolicy(QObject):
             constrained = []
             for section in active:
                 proposed = remaining * weights[section] / weight_total
-                if proposed < minimum:
-                    widths[section] = minimum
+                if proposed < minimums[section]:
+                    widths[section] = minimums[section]
                     constrained.append(section)
                 elif proposed > maximum:
                     widths[section] = maximum

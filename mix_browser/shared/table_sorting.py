@@ -85,6 +85,8 @@ def reorder_model_rows_preserving_indexes(
 # @arch mix-browser.application-sort-header component | en: Draws shared primary and secondary sorting controls for sortable tables | zh: 为可排序表格绘制统一的主次排序指示和清除控件
 class ApplicationSortHeaderView(QHeaderView):
     sort_keys_changed = Signal(object)
+    _SORT_INDICATOR_RESERVE = 16
+    _FIRST_SECTION_CONTROLS_RESERVE = 50
 
     def __init__(
         self,
@@ -156,6 +158,14 @@ class ApplicationSortHeaderView(QHeaderView):
         self.viewport().update()
         self.sort_keys_changed.emit(value)
 
+    def sectionSizeFromContents(self, logical_index: int) -> QSize:
+        size = super().sectionSizeFromContents(logical_index)
+        reserved_width = self._SORT_INDICATOR_RESERVE
+        if logical_index == self._first_visible_section():
+            reserved_width += self._FIRST_SECTION_CONTROLS_RESERVE
+        size.setWidth(size.width() + reserved_width)
+        return size
+
     def paintSection(self, painter: QPainter, rect, logical_index: int) -> None:
         if not rect.isValid():
             return
@@ -181,10 +191,9 @@ class ApplicationSortHeaderView(QHeaderView):
             ),
             -1,
         )
-        if sort_index >= 0:
-            label_rect.adjust(0, 0, -16, 0)
+        label_rect.adjust(0, 0, -self._SORT_INDICATOR_RESERVE, 0)
         if logical_index == self._first_visible_section():
-            label_rect.adjust(50, 0, 0, 0)
+            label_rect.adjust(self._FIRST_SECTION_CONTROLS_RESERVE, 0, 0, 0)
         label_option.rect = label_rect
         self.style().drawControl(
             QStyle.ControlElement.CE_HeaderLabel,

@@ -401,6 +401,21 @@ CLI 和 MCP 提供程序化接口，供自动化任务与其他系统集成使�
         <translation>显示素材边缘</translation>
     </message>
     <message>
+        <location filename="../features/browser/entry_preview.py" line="1298"/>
+        <source>Transparent index</source>
+        <translation>透明索引</translation>
+    </message>
+    <message>
+        <location filename="../features/browser/entry_preview.py" line="1306"/>
+        <source>When checked, the format-defined transparent palette index is transparent; when unchecked, its palette color is shown.</source>
+        <translation>勾选时将格式定义的透明色盘索引显示为透明；取消勾选则显示该索引对应的色盘颜色。</translation>
+    </message>
+    <message>
+        <location filename="../features/browser/entry_preview.py" line="1992"/>
+        <source>The selected SHP frame is empty and contains no image data.</source>
+        <translation>当前 SHP 帧为空，不含图像数据。</translation>
+    </message>
+    <message>
         <location filename="../features/browser/entry_preview.py" line="714"/>
         <source>?</source>
         <translation>?</translation>
@@ -443,6 +458,22 @@ CLI 和 MCP 提供程序化接口，供自动化任务与其他系统集成使�
         <location filename="../features/browser/entry_preview.py" line="1070"/>
         <source>Current image zoom</source>
         <translation>当前图像缩放比例</translation>
+    </message>
+    <message>
+        <source>Model view</source>
+        <translation>模型视图</translation>
+    </message>
+    <message>
+        <source>Orbit view</source>
+        <translation>环绕视角</translation>
+    </message>
+    <message>
+        <source>Free rotation</source>
+        <translation>自由旋转</translation>
+    </message>
+    <message>
+        <source>Choose how to navigate VXL and HVA model previews.</source>
+        <translation>选择 VXL 和 HVA 模型预览的操作方式。</translation>
     </message>
     <message>
         <location filename="../features/browser/entry_preview.py" line="743"/>
@@ -600,8 +631,8 @@ CLI 和 MCP 提供程序化接口，供自动化任务与其他系统集成使�
     </message>
     <message>
         <location filename="../features/browser/asset_preview.py" line="188"/>
-        <source>Cameo and AltCameo use UnitArt.CameoPalette, default cameo.pal. SidebarImage uses SidebarPalette, also default cameo.pal. An animation defaults to anim.pal. If AnimPalette is present but disabled and TerrainPalette does not match, the current rule logic returns the theater unit palette. Building, terrain, and unit defaults use theater-specific palettes.</source>
-        <translation>Cameo 和 AltCameo 使用 UnitArt.CameoPalette，默认是 cameo.pal。SidebarImage 使用 SidebarPalette，默认也为 cameo.pal。动画默认使用 anim.pal。如果存在 AnimPalette 但它未启用，且 TerrainPalette 不匹配，当前规则逻辑会返回剧场单位色盘。建筑、地形和单位默认值使用对应剧场色盘。</translation>
+        <source>Cameo and AltCameo use UnitArt.CameoPalette, default cameo.pal. SidebarImage uses SidebarPalette, also default cameo.pal. An animation variant that matches an Art object family inherits that family's palette rules; otherwise it defaults to anim.pal. If AnimPalette is present but disabled and TerrainPalette does not match, the current rule logic returns the theater unit palette. Building and unit defaults use the theater unit palette; terrain defaults use the theater ISO palette.</source>
+        <translation>Cameo 和 AltCameo 使用 UnitArt.CameoPalette，默认是 cameo.pal。SidebarImage 使用 SidebarPalette，默认也为 cameo.pal。与 Art 对象资源系列匹配的动画变体会继承该系列的色盘规则；否则默认使用 anim.pal。如果存在 AnimPalette 但它未启用，且 TerrainPalette 不匹配，当前规则逻辑会返回剧场单位色盘。建筑和单位默认使用剧场单位色盘；地形默认使用剧场 ISO 色盘。</translation>
     </message>
     <message>
         <location filename="../features/browser/asset_preview.py" line="189"/>
@@ -624,22 +655,27 @@ CLI 和 MCP 提供程序化接口，供自动化任务与其他系统集成使�
         <translation>cameo.mix 中的 SHP 在 cameo.pal 可用时使用它。</translation>
     </message>
     <message>
-        <location filename="../features/browser/asset_preview.py" line="198"/>
+        <location filename="../features/browser/asset_preview.py" line="212"/>
+        <source>Numbered loading-screen SHPs use ldscrna.pal for the A and B families, ldscrns.pal for the S family, and ldscrn.pal for other letter families. Named loading-screen SHPs first use a matching mpls&lt;name&gt;.pal palette when available, then mpls.pal. Exact matches in the current MIX or same folder take precedence.</source>
+        <translation>带编号的载入画面 SHP 中，A、B 组使用 ldscrna.pal，S 组使用 ldscrns.pal，其他字母组使用 ldscrn.pal。不带编号的载入画面 SHP 优先使用名称对应的 mpls&lt;名称&gt;.pal 色盘；没有对应项时使用 mpls.pal。若当前 MIX 或同目录中存在同名色盘，则优先使用同名色盘。</translation>
+    </message>
+    <message>
+        <location filename="../features/browser/asset_preview.py" line="199"/>
         <source>After exact basename and archive-context matches, a one-frame SHP with a 60 by 48 canvas is treated as a cameo and uses cameo.pal when available; this precedes prefix and similarity matching.</source>
         <translation>在精确 basename 和归档上下文匹配之后，单帧且画布为 60 × 48 的 SHP 会被视为 cameo，并在可用时使用 cameo.pal；此规则优先于前缀和相似度匹配。</translation>
     </message>
     <message>
-        <location filename="../features/browser/asset_preview.py" line="199"/>
+        <location filename="../features/browser/asset_preview.py" line="200"/>
         <source>For SHPs in ISO MIX archives, parse iso&lt;theater&gt; or iso&lt;theater&gt;md and use that theater&apos;s ISO palette; temp and snow are aliases for tem and sno. isogen and isogenmd use the configured theater; Auto uses tem. This follows exact basename matching and precedes prefix and similarity matching.</source>
         <translation>对于 ISO MIX 归档中的 SHP，解析 iso&lt;剧场&gt; 或 iso&lt;剧场&gt;md，并使用对应剧场的 ISO 色盘；temp 和 snow 分别是 tem 和 sno 的别名。isogen 和 isogenmd 使用已配置的剧场；Auto 使用 tem。此规则在精确 basename 匹配之后、前缀和相似度匹配之前执行。</translation>
     </message>
     <message>
-        <location filename="../features/browser/asset_preview.py" line="200"/>
+        <location filename="../features/browser/asset_preview.py" line="201"/>
         <source>For SHP assets in a named non-ISO theater MIX, infer the theater from the nearest matching archive name and use its unit palette. Recognized names include temperat, snow/snowmd, urban, desert/des, lunar/lun, and urbann/ubn. This follows exact basename matching and precedes prefix and similarity matching.</source>
         <translation>对于命名的非 ISO 剧场 MIX 中的 SHP，根据最近的匹配归档名称推断剧场，并使用其单位色盘。识别的名称包括 temperat、snow/snowmd、urban、desert/des、lunar/lun 和 urbann/ubn。此规则在精确 basename 匹配之后、前缀和相似度匹配之前执行。</translation>
     </message>
     <message>
-        <location filename="../features/browser/asset_preview.py" line="201"/>
+        <location filename="../features/browser/asset_preview.py" line="202"/>
         <source>Built-in SHP UI families use their matching game palettes: arrow uses mousepal.pal; ebtn-dn/up use sdbtnanm.pal; pipbrd, pips/pips2, and progbar/progbar2/progbarm use sidebar.pal.</source>
         <translation>内置 SHP 界面资源系列使用对应的游戏色盘：arrow 使用 mousepal.pal；ebtn-dn/up 使用 sdbtnanm.pal；pipbrd、pips/pips2 和 progbar/progbar2/progbarm 使用 sidebar.pal。</translation>
     </message>
@@ -688,6 +724,58 @@ CLI 和 MCP 提供程序化接口，供自动化任务与其他系统集成使�
         <location filename="../features/browser/asset_preview.py" line="220"/>
         <source>Game Directory</source>
         <translation>游戏目录</translation>
+    </message>
+    <message>
+        <source>Buildings</source>
+        <translation>建筑</translation>
+    </message>
+    <message>
+        <source>Units</source>
+        <translation>单位</translation>
+    </message>
+    <message>
+        <source>Terrain</source>
+        <translation>地形</translation>
+    </message>
+    <message>
+        <source>Animations and Effects</source>
+        <translation>动画和特效</translation>
+    </message>
+    <message>
+        <source>Projectiles</source>
+        <translation>投射物</translation>
+    </message>
+    <message>
+        <source>Interface and Cameos</source>
+        <translation>界面与 Cameo</translation>
+    </message>
+    <message>
+        <source>Other or Unclassified</source>
+        <translation>其他或未分类</translation>
+    </message>
+    <message>
+        <source>By use</source>
+        <translation>按用途</translation>
+    </message>
+    <message>
+        <source>Group palette candidates by use</source>
+        <translation>按用途对色盘候选项分组</translation>
+    </message>
+    <message>
+        <source>{0} (multiple uses)</source>
+        <translation>{0}（多用途）</translation>
+    </message>
+    <message>
+        <source>Use categories, in display order:</source>
+        <translation>用途分类，按显示顺序：</translation>
+    </message>
+    <message>
+        <source>A palette with more than one identified use appears in every matching category and is marked as multiple uses.</source>
+        <translation>已识别出多种用途的色盘会出现在所有匹配分类中，并在名称后标注“多用途”。</translation>
+    </message>
+    <message>
+        <source>Use categories follow Art references and built-in palette rules; candidates without a recognized use appear under Other or Unclassified.</source>
+        <translation>用途分类依据 Art 引用和内置色盘规则；无法识别用途的候选项会归入“其他或未分类”。</translation>
     </message>
     <message>
         <location filename="../features/browser/asset_preview.py" line="353"/>
@@ -1095,6 +1183,26 @@ CLI 和 MCP 提供程序化接口，供自动化任务与其他系统集成使�
         <translation>色盘选择</translation>
     </message>
     <message>
+        <source>Automatic selection priority</source>
+        <translation>自动选择优先级</translation>
+    </message>
+    <message>
+        <source>Candidate list groups, in display order:</source>
+        <translation>候选列表分组（按显示顺序）：</translation>
+    </message>
+    <message>
+        <source>The first group contains the always-available grayscale palette.</source>
+        <translation>第一个分组包含始终可用的灰度色盘。</translation>
+    </message>
+    <message>
+        <source>The candidate list order is separate from automatic selection priority.</source>
+        <translation>候选列表顺序与自动选择优先级相互独立。</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
         <location filename="../features/browser/entry_preview.py" line="1330"/>
         <source>Reset VXL view to native scale</source>
         <translation>将 VXL 视图恢复到原生比例</translation>
@@ -1133,6 +1241,13 @@ CLI 和 MCP 提供程序化接口，供自动化任务与其他系统集成使�
         <location filename="../features/browser/entry_preview.py" line="1558"/>
         <source>This media format is not available in the current multimedia runtime.</source>
         <translation>当前多媒体运行环境不支持此媒体格式。</translation>
+    </message>
+</context>
+<context>
+    <name>_PaletteComboBox</name>
+    <message>
+        <source>Palette</source>
+        <translation>色盘</translation>
     </message>
 </context>
 <context>
@@ -1383,6 +1498,14 @@ CLI 和 MCP 提供程序化接口，供自动化任务与其他系统集成使�
         <translation>以指针位置为中心缩放预览。</translation>
     </message>
     <message>
+        <source>Use the mouse wheel over the palette selector</source>
+        <translation>在色盘选择器上滚动鼠标滚轮</translation>
+    </message>
+    <message>
+        <source>Select the previous or next palette candidate.</source>
+        <translation>切换到上一个或下一个色盘候选项。</translation>
+    </message>
+    <message>
         <source>Drag an image with the left mouse button</source>
         <translation>按住鼠标左键拖动图像</translation>
     </message>
@@ -1395,8 +1518,8 @@ CLI 和 MCP 提供程序化接口，供自动化任务与其他系统集成使�
         <translation>按住鼠标左键拖动体素模型</translation>
     </message>
     <message>
-        <source>Rotate a VXL or HVA model.</source>
-        <translation>旋转 VXL 或 HVA 模型。</translation>
+        <source>In Orbit view, horizontal dragging changes the viewing azimuth and vertical dragging changes camera elevation, including overhead and underneath views. In Free rotation view, dragging rotates the model.</source>
+        <translation>环绕视角模式下，横向拖动可改变观察方位，纵向拖动可调整相机高度，可正俯视或正仰视；自由旋转模式下，拖动可旋转模型。</translation>
     </message>
     <message>
         <source>Drag a voxel model with the middle or right mouse button</source>
@@ -3717,6 +3840,14 @@ lib.pal&lt;/pre&gt;
         <translation>从此文件夹及其嵌套 MIX 归档读取色盘和 Art 规则。NewTheater 的 A 变体使用 Snow 色盘；G 变体使用当前选定剧场。</translation>
     </message>
     <message>
+        <source>Group palette candidates by use</source>
+        <translation>按用途对色盘候选项分组</translation>
+    </message>
+    <message>
+        <source>Uses follow Art references and built-in palette rules. Multi-use palettes appear in each matching group.</source>
+        <translation>用途依据 Art 引用和内置色盘规则判定。多用途色盘会出现在所有匹配分组中。</translation>
+    </message>
+    <message>
         <location filename="../features/browser/window.py" line="1446"/>
         <source>User palette library</source>
         <translation>用户色盘库</translation>
@@ -4596,6 +4727,34 @@ lib.pal&lt;/pre&gt;
     <message>
         <source>Changes since {0}</source>
         <translation>自 {0} 以来的更新</translation>
+    </message>
+    <message>
+        <source>Added an optional orbit view for voxel previews, with adjustable viewing direction and elevation, including top-down and bottom-up views.</source>
+        <translation>体素预览新增可选的环绕视角，可调整观察方位和俯仰角度，也可正俯视或正仰视。</translation>
+    </message>
+    <message>
+        <source>SHP previews now identify selected frames that contain no image data.</source>
+        <translation>SHP 预览现在会标明所选帧不含图像数据。</translation>
+    </message>
+    <message>
+        <source>Previews now show the format-defined transparent palette index's color by default, with a preference to display that index as transparent.</source>
+        <translation>预览默认显示格式定义的透明索引对应的色盘颜色，也可通过用户偏好将其显示为透明。</translation>
+    </message>
+    <message>
+        <source>Corrected automatic palette selection for theater-specific assets, animation variants, buildings, and loading screens.</source>
+        <translation>修正了剧场素材、动画变体、建筑和载入画面的自动色盘选择。</translation>
+    </message>
+    <message>
+        <source>Palette candidates can be grouped by use in the preview and Preferences; palettes with multiple identified uses are marked accordingly.</source>
+        <translation>预览区和首选项中均可按用途分组查看色盘候选项，多用途色盘会标记说明。</translation>
+    </message>
+    <message>
+        <source>Preview zoom now stays anchored at the pointer, and automatic palette changes no longer cause a brief flash.</source>
+        <translation>预览缩放现在以鼠标指向位置为锚点，自动切换色盘时也不再短暂闪烁。</translation>
+    </message>
+    <message>
+        <source>Sortable table headers reserve space for sort indicators and the clear-sort control so labels are not clipped.</source>
+        <translation>可排序表格的表头会为排序指示和清除排序控件预留空间，避免标题被遮挡或截断。</translation>
     </message>
     <message>
         <source>Added animated HVA pose previews for paired VXL models, with frame selection and an autoplay setting separate from SHP previews.</source>
