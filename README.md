@@ -2,7 +2,7 @@
 
 **Red Alert 2 and Yuri's Revenge MIX Browser** is a desktop application for browsing and managing Westwood MIX archives alongside ordinary game files and folders.
 
-Version: **1.2.0**
+Version: **1.2.1**
 
 README: English | [简体中文](README.zh-CN.md)  
 Interface languages: English and Simplified Chinese
@@ -98,6 +98,8 @@ package.bat
 
 The onedir build is created at `dist/RA2AYRMB/RA2AYRMB.exe`. Settings, imported palettes, and the optional community database are stored under `dist/RA2AYRMB/user-data/`.
 
+For release builds, run `build-release.bat`. Upload-ready archives and the VLC source comparison decision are collected under `release-artifacts/upload-v<version>/`; license and binary audit reports are kept under `release-artifacts/review-v<version>/`. Run `tools\check_release_licenses.bat` to recheck existing artifacts. It checks archives in the `release-artifacts/` root first, then falls back to `upload-v<version>/` after upload staging; you can also pass a source-tree path and release-output path. The check blocks missing files or mismatched source offers; it also lists manual reviews that must be completed against the exact Windows package because scripts cannot discover every embedded third-party component or make legal determinations.
+
 ## CLI
 
 The CLI writes structured JSON for successful operations and stable error objects to stderr. See [CLI and MCP documentation](docs/cli_mcp.md) for the complete command reference.
@@ -131,6 +133,8 @@ See [CLI and MCP documentation](docs/cli_mcp.md) for the available tools and cli
 
 ## Licensing
 
-Project-authored source code, documentation, and original assets (including the hand-drawn `MIX-EXE.ico`, `MIX-FILE.ico`, `MMX-FILE.ico`, and `YRO-FILE.ico` icons) are licensed under the [MIT License](LICENSE). This license does not automatically cover separately sourced datasets, game files, Qt/PySide, `python-vlc`, libVLC, FFmpeg, or their codecs. Binary-package notices are described in [third-party notices](THIRD_PARTY_NOTICES.md).
+The bundled Windows executable selects GPL-3.0 for the combined application under the project's GPL-2.0-or-later grant, not under the project code MIT option. The included XCC data is GPL-3.0, so the combined distribution does not claim a later GPL version. Other third-party components retain their own licenses; see the package distribution notice and third-party notices.
 
-The bundled XCC MIX name lists for Tiberian Dawn, Tiberian Sun, and Red Alert 2/Yuri's Revenge are identified as GPL-3.0 and include the accompanying license text. The optional CnCNet community Global MIX Database is downloaded on request from its original forum attachment and is not bundled with the repository or application releases. It also supplies the Red Alert name list. The project MIT license applies to project-authored material and does not relicense separately sourced data. See [licensing details](docs/licensing.md) and [third-party notices](THIRD_PARTY_NOTICES.md) for more information.
+Project-authored application source code is available under the [MIT License](LICENSE) or [GPL-2.0-or-later](LICENSE-GPL-2.0-or-later.txt). The GPL grant supports distribution of the Windows application with its integrated GPL-licensed VLC runtime. Project-authored documentation and original assets (including the hand-drawn `MIX-EXE.ico`, `MIX-FILE.ico`, `MMX-FILE.ico`, and `YRO-FILE.ico` icons) are MIT-licensed. This repository and its release packages contain separately licensed material; the GitHub MIT label does not cover every file. See [third-party notices](THIRD_PARTY_NOTICES.md).
+
+The bundled XCC MIX name lists for Tiberian Dawn, Tiberian Sun, and Red Alert 2/Yuri's Revenge are separately licensed under GPL-3.0 and include the accompanying license text. The optional CnCNet community Global MIX Database is downloaded on request from its original forum attachment and is not bundled with the repository or application releases. It also supplies the Red Alert name list. See [licensing details](docs/licensing.md) for component scopes and source offers.

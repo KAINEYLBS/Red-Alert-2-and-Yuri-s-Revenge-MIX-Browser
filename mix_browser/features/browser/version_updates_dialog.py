@@ -19,8 +19,16 @@ from mix_browser import __version__
 from mix_browser.shared.versioning import format_display_version
 
 
-_PREVIOUS_RELEASE_VERSION = "1.1.0"
+_PREVIOUS_RELEASE_VERSION = "1.2.0"
 _RELEASE_HISTORY = (
+    (
+        "1.2.0",
+        "1.2.1",
+    ),
+    (
+        "1.1.0",
+        "1.2.0",
+    ),
     (
         "1.0.0",
         "1.1.0",
@@ -66,29 +74,7 @@ class VersionUpdatesDialog(QDialog):
         self._pages.addWidget(
             self._notes_page(
                 self.tr("Changes since {0}").format(previous_version),
-                (
-                    self.tr(
-                        "Added an optional orbit view for voxel previews, with adjustable viewing direction and elevation, including top-down and bottom-up views."
-                    ),
-                    self.tr(
-                        "SHP previews now identify selected frames that contain no image data."
-                    ),
-                    self.tr(
-                        "Previews now show the format-defined transparent palette index's color by default, with a preference to display that index as transparent."
-                    ),
-                    self.tr(
-                        "Corrected automatic palette selection for theater-specific assets, animation variants, buildings, and loading screens."
-                    ),
-                    self.tr(
-                        "Palette candidates can be grouped by use in the preview and Preferences; palettes with multiple identified uses are marked accordingly."
-                    ),
-                    self.tr(
-                        "Preview zoom now stays anchored at the pointer, and automatic palette changes no longer cause a brief flash."
-                    ),
-                    self.tr(
-                        "Sortable table headers reserve space for sort indicators and the clear-sort control so labels are not clipped."
-                    ),
-                ),
+                self._current_release_notes(),
             )
         )
         self._pages.addWidget(self._history_page())
@@ -123,6 +109,16 @@ class VersionUpdatesDialog(QDialog):
         return (
             self._dont_show_checkbox is not None
             and self._dont_show_checkbox.isChecked()
+        )
+
+    def _current_release_notes(self) -> tuple[str, ...]:
+        return (
+            self.tr(
+                "Voxel preview lighting is brighter, making model surfaces and details easier to see."
+            ),
+            self.tr(
+                "License information has been clarified to reduce possible confusion between the project's license and third-party component licenses. The 1.2.1 release includes a separate archive of the corresponding VLC source. Future releases will refer to previously published copies of unchanged source archives and other materials that applicable licenses require us to provide separately; updated materials will be published when they change."
+            ),
         )
 
     def _notes_page(self, heading: str, notes: tuple[str, ...]) -> QWidget:
@@ -164,6 +160,32 @@ class VersionUpdatesDialog(QDialog):
         return page
 
     def _release_history_notes(self, end_version: str) -> tuple[str, ...]:
+        if end_version == __version__:
+            return self._current_release_notes()
+        if end_version == "1.2.0":
+            return (
+                self.tr(
+                    "Added an optional orbit view for voxel previews, with adjustable viewing direction and elevation, including top-down and bottom-up views."
+                ),
+                self.tr(
+                    "SHP previews now identify selected frames that contain no image data."
+                ),
+                self.tr(
+                    "Previews now show the format-defined transparent palette index's color by default, with a preference to display that index as transparent."
+                ),
+                self.tr(
+                    "Corrected automatic palette selection for theater-specific assets, animation variants, buildings, and loading screens."
+                ),
+                self.tr(
+                    "Palette candidates can be grouped by use in the preview and Preferences; palettes with multiple identified uses are marked accordingly."
+                ),
+                self.tr(
+                    "Preview zoom now stays anchored at the pointer, and automatic palette changes no longer cause a brief flash."
+                ),
+                self.tr(
+                    "Sortable table headers reserve space for sort indicators and the clear-sort control so labels are not clipped."
+                ),
+            )
         if end_version == "1.1.0":
             return (
                 self.tr(

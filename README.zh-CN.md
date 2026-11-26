@@ -2,7 +2,7 @@
 
 **Red Alert 2 and Yuri's Revenge MIX Browser** 是一款桌面应用，用于浏览和管理 Westwood MIX 归档，以及普通游戏文件和文件夹。
 
-版本：**1.2.0**
+版本：**1.2.1**
 
 README： [English](README.md) | 简体中文  
 界面语言：英语、简体中文
@@ -131,6 +131,8 @@ RA2AYRMB 提供基于本地 stdio 的 MCP（Model Context Protocol）服务器�
 
 ## 许可
 
-项目原创源代码、文档和素材（包括手绘的 `MIX-EXE.ico`、`MIX-FILE.ico`、`MMX-FILE.ico` 和 `YRO-FILE.ico` 图标）采用 [MIT 许可证](LICENSE)。此许可证不会自动覆盖单独来源的数据集、游戏文件、Qt/PySide、`python-vlc`、libVLC、FFmpeg 或其编解码器。二进制包中的第三方声明见[第三方声明](THIRD_PARTY_NOTICES.md)。
+随附的 Windows 可执行版组合程序选择 GPL-3.0，这是项目 GPL-2.0-or-later 授权允许的版本；该可执行版不采用项目代码的 MIT 选项。由于其中包含 GPL-3.0 的 XCC 数据，组合发行不声明可升级到后续 GPL 版本。其他第三方组件仍按各自许可发布，详见可执行版发行声明和第三方声明。
 
-随包附带的 XCC 名称表涵盖泰伯利亚黎明、泰伯利亚之日和红色警戒 2/尤里的复仇，标注为 GPL-3.0 并附有相应许可文本。可选的 CnCNet 社区 Global MIX Database 由用户按需从原论坛附件下载，不随源码仓库或应用程序版本发布；其中还包含红色警戒名称表。项目 MIT 许可适用于项目原创内容，不会改变单独来源数据本身的许可。第三方素材及其许可条款见[许可说明](docs/licensing.md)和[第三方声明](THIRD_PARTY_NOTICES.md)。
+项目原创应用源代码采用 [MIT 许可证](LICENSE)或 [GPL-2.0-or-later](LICENSE-GPL-2.0-or-later.txt)。额外的 GPL 授权用于随附并集成 GPL 许可 VLC runtime 的 Windows 应用分发。项目原创文档和素材（包括手绘的 `MIX-EXE.ico`、`MIX-FILE.ico`、`MMX-FILE.ico` 和 `YRO-FILE.ico` 图标）采用 MIT 许可。仓库和发布包还包含其他单独许可的材料；GitHub 上的 MIT 标记不代表所有文件均采用 MIT。详见[第三方声明](THIRD_PARTY_NOTICES.md)。
+
+随包附带的 XCC 名称表涵盖泰伯利亚黎明、泰伯利亚之日和红色警戒 2/尤里的复仇，单独采用 GPL-3.0 并附有相应许可文本。可选的 CnCNet 社区 Global MIX Database 由用户按需从原论坛附件下载，不随源码仓库或应用程序版本发布；其中还包含红色警戒名称表。各组件的许可范围和源码要约见[许可说明](docs/licensing.md)。

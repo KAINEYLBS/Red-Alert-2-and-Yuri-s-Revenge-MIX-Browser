@@ -1,0 +1,11 @@
+Written Offer for Corresponding Source of the VLC Runtime
+
+For each RA2AYRMB Windows executable package that includes this notice, KAINEYLBS offers any third party a complete machine-readable copy of the corresponding source for the bundled VLC 3.0.24 runtime and its incorporated dependencies. The source is provided as a separate release asset:
+
+The selected VLC runtime includes the samplerate plugin. Its source states that the linked module is GPL-2.0-or-later; the GPL-2.0 text in VLC's COPYING.txt is the license text, not a claim that this component is GPL-2.0-only.
+
+https://github.com/KAINEYLBS/Red-Alert-2-and-Yuri-s-Revenge-MIX-Browser/releases/download/v1.2.1/RA2AYRMB-vlc-source-3.0.24.7z
+
+The archive contains the VLC 3.0.24 source tree, the corresponding source archives for the dependencies used by the selected runtime plugins, and the VLC contribution rules and patches needed to build those components.
+
+This offer remains valid for at least three years from the date the recipient receives each package containing this notice. The source will be provided electronically at no charge. If the release asset is unavailable, request the source by opening an issue at https://github.com/KAINEYLBS/Red-Alert-2-and-Yuri-s-Revenge-MIX-Browser/issues and including the executable package filename and version.

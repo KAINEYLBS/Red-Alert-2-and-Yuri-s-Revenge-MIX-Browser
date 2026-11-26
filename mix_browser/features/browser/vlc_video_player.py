@@ -61,6 +61,11 @@ def prepare_vlc_runtime() -> bool:
         old_library_path = os.environ.get("PYTHON_VLC_LIB_PATH")
         old_module_path = os.environ.get("PYTHON_VLC_MODULE_PATH")
         try:
+            binding_directory = Path(sys.executable).resolve().parent / "python-vlc"
+            if (binding_directory / "vlc.py").is_file():
+                binding_path = str(binding_directory)
+                if binding_path not in sys.path:
+                    sys.path.insert(0, binding_path)
             dll_directory = os.add_dll_directory(str(runtime))
             os.environ["PYTHON_VLC_LIB_PATH"] = str(runtime / "libvlc.dll")
             os.environ["PYTHON_VLC_MODULE_PATH"] = str(runtime / "plugins")

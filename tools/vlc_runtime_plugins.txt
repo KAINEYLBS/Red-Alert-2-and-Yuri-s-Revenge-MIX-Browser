@@ -19,7 +19,6 @@ keystore/libmemory_keystore_plugin.dll
 logger/libconsole_logger_plugin.dll
 stream_filter/libprefetch_plugin.dll
 stream_filter/librecord_plugin.dll
-text_renderer/libfreetype_plugin.dll
 video_chroma/libswscale_plugin.dll
 video_chroma/libyuvp_plugin.dll
 video_output/libdirect3d11_plugin.dll

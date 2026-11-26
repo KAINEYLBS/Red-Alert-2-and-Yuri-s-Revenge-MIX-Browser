@@ -13,7 +13,7 @@ $downloadBase = "https://mirror.nju.edu.cn/videolan-ftp/vlc/$version/win64"
 if (Test-Path -LiteralPath $target) {
     $existingVersion = (Get-Item -LiteralPath (Join-Path $target "libvlc.dll")).VersionInfo.FileVersion
     if ($existingVersion -eq $version -and (Test-Path -LiteralPath (Join-Path $target "plugins\codec\libavcodec_plugin.dll"))) {
-        Write-Host "VLC $version runtime is already prepared."
+        Write-Host "VLC $version runtime is already prepared." -ForegroundColor Green
     } else {
         throw "The existing VLC runtime directory is incomplete or has a different version: $target"
     }
@@ -51,4 +51,4 @@ $pluginCache = Join-Path $pluginDirectory "plugins.dat"
 if (-not (Test-Path -LiteralPath $pluginCache -PathType Leaf) -or (Get-Item -LiteralPath $pluginCache).Length -le 24) {
     throw "VLC plugin cache generation did not produce a populated cache: $pluginCache"
 }
-Write-Host "VLC $version runtime prepared at .runtime\vlc."
+Write-Host "VLC $version runtime prepared at .runtime\vlc." -ForegroundColor Green

@@ -1,0 +1,31 @@
+Written Offer for Corresponding Source of the RA2AYRMB Windows Distribution
+
+For each RA2AYRMB Windows executable package containing this notice, KAINEYLBS offers any third party a complete machine-readable copy of the corresponding source for the GPL-3.0 RA2AYRMB combined application and its included GPL components, together with the scripts and source inputs needed to build them. The source is provided electronically at no charge and this offer remains valid for at least three years from the date each recipient receives the executable package.
+
+The project source archive for this version is:
+
+https://github.com/KAINEYLBS/Red-Alert-2-and-Yuri-s-Revenge-MIX-Browser/releases/download/v1.2.1/RA2AYRMB-source-1.2.1.7z
+
+It contains the application source, the XCC GPL-3.0 data and license, the replaceable python-vlc 3.0.21203 source file, release build scripts, and license notices. The GPL-enabled VLC runtime's corresponding source and exact build dependencies are provided separately at:
+
+https://github.com/KAINEYLBS/Red-Alert-2-and-Yuri-s-Revenge-MIX-Browser/releases/download/v1.2.1/RA2AYRMB-vlc-source-3.0.24.7z
+
+The executable also contains separately licensed third-party libraries. Their exact source versions are available from these upstream locations:
+
+- Qt and QtSvg 6.11.1: https://code.qt.io/cgit/qt/qtbase.git/tree/?h=v6.11.1 and https://code.qt.io/cgit/qt/qtsvg.git/tree/?h=v6.11.1
+- PySide6 and shiboken6 6.11.1: https://code.qt.io/cgit/pyside/pyside-setup.git/tree/?h=6.11.1
+- CPython 3.14.7: https://github.com/python/cpython/tree/v3.14.7
+- zlib-ng 2.2.4: https://github.com/zlib-ng/zlib-ng/tree/2.2.4
+- Unicode Character Database 16.0.0: https://www.unicode.org/Public/16.0.0/ucd/
+- OpenSSL 3.5.7: https://github.com/openssl/openssl/tree/openssl-3.5.7
+- PyCryptodome 3.23.0: https://github.com/Legrandin/pycryptodome/tree/v3.23.0
+- CFFI 2.1.1: https://github.com/python-cffi/cffi/tree/v2.1.1
+- pycparser 3.12: https://github.com/eliben/pycparser/tree/release_v3.12
+- packaging 26.3: https://github.com/pypa/packaging/tree/26.3
+- typing_extensions 4.16.0: https://github.com/python/typing_extensions/tree/4.16.0
+- PyInstaller 6.20.0: https://github.com/pyinstaller/pyinstaller/tree/v6.20.0
+- setuptools 84.0.0: https://github.com/pypa/setuptools/tree/v84.0.0
+
+The Qt DLLs are distributed as replaceable files under `_internal/PySide6`; the python-vlc binding is a replaceable source file at `python-vlc/vlc.py`. No static Qt or python-vlc library copy is embedded in the executable.
+
+If any linked source asset becomes unavailable, request a free copy by opening an issue at https://github.com/KAINEYLBS/Red-Alert-2-and-Yuri-s-Revenge-MIX-Browser/issues and identify the executable package filename and version.

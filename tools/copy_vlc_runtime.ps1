@@ -56,4 +56,4 @@ if (-not (Test-Path -LiteralPath $pluginCache -PathType Leaf) -or (Get-Item -Lit
 $copiedPluginCount = (Get-Content -LiteralPath $pluginManifest | Where-Object {
     $_.Trim() -and -not $_.Trim().StartsWith("#")
 }).Count
-Write-Host "Copied VLC core and $copiedPluginCount preview plugins."
+Write-Host "Copied VLC core and $copiedPluginCount preview plugins." -ForegroundColor Green

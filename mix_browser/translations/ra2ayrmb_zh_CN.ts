@@ -14,14 +14,19 @@
         <translation>版本：{0}</translation>
     </message>
     <message>
-        <location filename="../features/browser/about_dialog.py" line="39"/>
-        <source>License: MIT</source>
-        <translation>许可证：MIT</translation>
-    </message>
-    <message>
-        <location filename="../features/browser/about_dialog.py" line="42"/>
+        <location filename="../features/browser/about_dialog.py" line="57"/>
         <source>Author: {0}</source>
         <translation>作者：{0}</translation>
+    </message>
+    <message>
+        <location filename="../features/browser/about_dialog.py" line="66"/>
+        <source>Open-source project files and bundled third-party materials retain their respective license terms. See this build's license notices.</source>
+        <translation>开源项目文件与随附的第三方材料分别遵循各自的许可条款。具体内容请查看本版本的许可说明。</translation>
+    </message>
+    <message>
+        <location filename="../features/browser/about_dialog.py" line="83"/>
+        <source>Open-source and third-party license notices</source>
+        <translation>开源及第三方许可说明</translation>
     </message>
     <message>
         <location filename="../features/browser/about_dialog.py" line="60"/>
@@ -4727,6 +4732,14 @@ lib.pal&lt;/pre&gt;
     <message>
         <source>Changes since {0}</source>
         <translation>自 {0} 以来的更新</translation>
+    </message>
+    <message>
+        <source>Voxel preview lighting is brighter, making model surfaces and details easier to see.</source>
+        <translation>体素预览光照已增强，模型表面和细节更容易辨认。</translation>
+    </message>
+    <message>
+        <source>License information has been clarified to reduce possible confusion between the project's license and third-party component licenses. The 1.2.1 release includes a separate archive of the corresponding VLC source. Future releases will refer to previously published copies of unchanged source archives and other materials that applicable licenses require us to provide separately; updated materials will be published when they change.</source>
+        <translation>已优化许可说明，以减少项目许可与第三方组件许可之间可能产生的误解。1.2.1 版本会单独附带对应的 VLC 源码包。后续版本若源码包及其他按相应协议要求需单独提供的材料未变化，将继续引用此前发布的材料，不重复上传；材料变化时会发布更新材料。</translation>
     </message>
     <message>
         <source>Added an optional orbit view for voxel previews, with adjustable viewing direction and elevation, including top-down and bottom-up views.</source>

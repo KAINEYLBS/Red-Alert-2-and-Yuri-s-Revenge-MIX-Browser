@@ -1,0 +1,7 @@
+RA2AYRMB Windows Executable Distribution License
+
+This notice applies to the bundled Windows executable as a combined application distribution. For this distribution, RA2AYRMB's project-authored application code is provided under GPL-3.0, using the GPL-3.0 option in the project's GPL-2.0-or-later grant. The combined distribution uses GPL-3.0 because it includes XCC MIX name data licensed under GPL-3.0; this notice does not offer the combined work under a later GPL version. This executable distribution is not offered under the project's MIT option. The full GPL-3.0 text is included as GPL-3.0.txt.
+
+Third-party code and data in the package are not relicensed by this notice and retain their own terms, as listed in THIRD_PARTY_NOTICES.md. In particular, the XCC MIX name data remain separately licensed under GPL-3.0.
+
+The corresponding project source, VLC source, and third-party source locations are listed in CORRESPONDING_SOURCE_OFFER.txt. The offer is included in the executable package.

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QSize, Qt
+from PySide6.QtCore import QByteArray, QSize, Qt, QUrl
 from PySide6.QtGui import QIcon, QPainter, QPalette, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
@@ -52,19 +53,46 @@ class AboutDialog(QDialog):
             self.tr("Version: {0}").format(format_display_version(__version__)),
             self,
         )
-        license_label = QLabel(self.tr("License: MIT"), self)
         author_label = QLabel(
             self.tr("Author: {0}").format("KAINEYLB小卡"),
             self,
         )
-        metadata_layout = QHBoxLayout()
+        metadata_layout = QVBoxLayout()
+        metadata_layout.setSpacing(4)
         metadata_layout.addWidget(version_label)
-        metadata_layout.addSpacing(16)
-        metadata_layout.addWidget(license_label)
-        metadata_layout.addSpacing(16)
         metadata_layout.addWidget(author_label)
-        metadata_layout.addStretch(1)
         layout.addLayout(metadata_layout)
+
+        third_party_label = QLabel(
+            self.tr(
+                "Open-source project files and bundled third-party materials retain "
+                "their respective license terms. See this build's license notices."
+            ),
+            self,
+        )
+        third_party_label.setWordWrap(True)
+        layout.addWidget(third_party_label)
+
+        notices_link = QLabel(self)
+        if getattr(sys, "frozen", False):
+            notices_path = (
+                Path(sys.executable).resolve().parent
+                / "licenses"
+                / "THIRD_PARTY_NOTICES.md"
+            )
+        else:
+            notices_path = Path(__file__).resolve().parents[3] / "THIRD_PARTY_NOTICES.md"
+        notices_url = (
+            QUrl.fromLocalFile(str(notices_path)).toString()
+            if notices_path.is_file()
+            else f"{GITHUB_PROJECT_URL}/blob/master/THIRD_PARTY_NOTICES.md"
+        )
+        notices_link.setText(
+            f'<a href="{notices_url}">'
+            f'{self.tr("Open-source and third-party license notices")}</a>'
+        )
+        notices_link.setOpenExternalLinks(True)
+        layout.addWidget(notices_link)
 
         project_started_label = QLabel(self.tr("Project started: October 31, 2026"), self)
         layout.addWidget(project_started_label)

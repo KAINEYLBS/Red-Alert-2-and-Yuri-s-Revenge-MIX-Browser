@@ -33,8 +33,11 @@ varying vec3 vNormal;
 varying float vColorIndex;
 uniform sampler1D uPalette;
 void main() {
+    vec3 normal = normalize(vNormal);
     vec3 lightDirection = normalize(vec3(-0.35, -0.45, 0.82));
-    float light = 0.32 + 0.68 * max(dot(normalize(vNormal), lightDirection), 0.0);
+    float fillLight = 0.50 + 0.10 * max(normal.z, 0.0);
+    float keyLight = 0.40 * max(dot(normal, lightDirection), 0.0);
+    float light = min(fillLight + keyLight, 1.0);
     vec3 color = texture1D(uPalette, (vColorIndex + 0.5) / 256.0).rgb;
     gl_FragColor = vec4(color * light, 1.0);
 }

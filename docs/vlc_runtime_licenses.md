@@ -1,6 +1,6 @@
 # VLC Runtime License Review
 
-This review covers the 29 plugin DLL paths in `tools/vlc_runtime_plugins.txt` and the corresponding VLC 3.0.24 source modules. The runtime is copied from the verified VideoLAN 3.0.24 Windows archive by `tools/copy_vlc_runtime.ps1`.
+This review covers the 28 plugin DLL paths in `tools/vlc_runtime_plugins.txt` and the corresponding VLC 3.0.24 source modules. The runtime is copied from the verified VideoLAN 3.0.24 Windows archive by `tools/copy_vlc_runtime.ps1`.
 
 ## Plugin Mapping
 
@@ -26,7 +26,6 @@ This review covers the 29 plugin DLL paths in `tools/vlc_runtime_plugins.txt` an
 | `logger/libconsole_logger_plugin.dll` | [`modules/logger/console.c`](https://code.videolan.org/videolan/vlc/-/blob/3.0.24/modules/logger/console.c) | LGPL-2.1-or-later |
 | `stream_filter/libprefetch_plugin.dll` | [`modules/stream_filter/prefetch.c`](https://code.videolan.org/videolan/vlc/-/blob/3.0.24/modules/stream_filter/prefetch.c) | LGPL-2.1-or-later |
 | `stream_filter/librecord_plugin.dll` | [`modules/stream_filter/record.c`](https://code.videolan.org/videolan/vlc/-/blob/3.0.24/modules/stream_filter/record.c) | LGPL-2.1-or-later |
-| `text_renderer/libfreetype_plugin.dll` | [`modules/text_renderer/freetype/`](https://code.videolan.org/videolan/vlc/-/tree/3.0.24/modules/text_renderer/freetype) | VLC module sources declare LGPL-2.1-or-later. VLC's FreeType contrib recipe requires a GPL build, so this plugin is part of the GPL-enabled VLC runtime. |
 | `video_chroma/libswscale_plugin.dll` | [`modules/video_chroma/swscale.c`](https://code.videolan.org/videolan/vlc/-/blob/3.0.24/modules/video_chroma/swscale.c) | LGPL-2.1-or-later; links FFmpeg libswscale. The binary archive does not expose the exact FFmpeg build options; the license review considers the VLC contribution rules for this plugin. |
 | `video_chroma/libyuvp_plugin.dll` | [`modules/video_chroma/yuvp.c`](https://code.videolan.org/videolan/vlc/-/blob/3.0.24/modules/video_chroma/yuvp.c) | LGPL-2.1-or-later |
 | `video_output/libdirect3d11_plugin.dll` | [`modules/video_output/win32/direct3d11.c`](https://code.videolan.org/videolan/vlc/-/blob/3.0.24/modules/video_output/win32/direct3d11.c) | LGPL-2.1-or-later |
@@ -38,26 +37,28 @@ This review covers the 29 plugin DLL paths in `tools/vlc_runtime_plugins.txt` an
 
 ## Package-Level Findings
 
-- The copied VLC runtime contains the `libsamplerate` and FreeType plugins. VLC 3.0.24's source/build rules therefore identify it as a GPL-enabled build; the archive's `COPYING.txt` is the GPL-2.0 text.
+- The packaged VLC runtime contains the `libsamplerate` plugin and excludes `libfreetype_plugin.dll`. VLC 3.0.24's source/build rules identify the retained samplerate plugin as GPL-2.0-or-later; `COPYING.txt` supplies the GPL-2.0 license text.
 - VLC module headers retain their LGPL-2.1-or-later declarations. The package also includes the upstream `COPYING.LIB` text so the LGPL terms are present alongside the GPL notice.
-- VLC's contribution rules specify static FFmpeg 8.1.2 plus zlib 1.3.2, GSM 1.0.13, OpenJPEG 2.5.4, and MinGW-w64 14.0.0 winpthreads for the Windows FFmpeg build. The selected VLC plugins also use libsamplerate 0.1.9 and FreeType 2.14.3; the rules require GPL mode for these dependencies.
+- VLC's contribution rules specify static FFmpeg 8.1.2 plus zlib 1.3.2, GSM 1.0.13, OpenJPEG 2.5.4, and MinGW-w64 14.0.0 winpthreads for the Windows FFmpeg build. The selected VLC plugins also use libsamplerate 0.1.9. FreeType 2.14.3 is not a VLC runtime dependency in this package.
+- VLC 3.0.24's `contrib/src/ffmpeg/rules.mak` pins FFmpeg to commit `71fb6132637a2a430375c24afc381fff8b854fe7` and applies the patches in `contrib/src/ffmpeg/`. A corresponding-source response must include that revision and patch set, not only the generic FFmpeg 8.1.2 release archive.
 - The VLC runtime archive is pinned and hash-verified by `tools/prepare_vlc_runtime.ps1`. The Windows package includes the runtime license texts and this plugin license review.
 
 ## Corresponding Source
 
-The corresponding VLC 3.0.24 source is available from the versioned [VideoLAN source tree](https://code.videolan.org/videolan/vlc/-/tree/3.0.24). This review maps each selected plugin to its upstream module, and is included in the binary package as `licenses/VLC/PLUGIN_LICENSES.md`; the package also includes the GPL and LGPL texts. The VLC source archive is not duplicated as a separate RA2AYRMB release asset.
+The corresponding VLC 3.0.24 source is based on the versioned [VideoLAN source tree](https://code.videolan.org/videolan/vlc/-/tree/3.0.24) and the dependency versions recorded below. This review maps each selected plugin to its upstream module and is included in the binary package as `licenses/VLC/PLUGIN_LICENSES.md`.
+
+Each Windows executable package built from this revision includes `licenses/VLC/SOURCE_CODE_OFFER.txt`. The offer covers the GPL-enabled VLC runtime and its incorporated dependencies. Their source is a separate asset in the v1.2.1 release at [RA2AYRMB-vlc-source-3.0.24.7z](https://github.com/KAINEYLBS/Red-Alert-2-and-Yuri-s-Revenge-MIX-Browser/releases/download/v1.2.1/RA2AYRMB-vlc-source-3.0.24.7z). The archive includes the VLC 3.0.24 source tree, source archives for the dependencies used by the selected runtime plugins, and the build rules and patches maintained in the VLC source tree. Keep the linked asset available for at least three years after distributing each executable package containing this offer. If the asset is unavailable, recipients can request a free copy through the project's public GitHub issue tracker. A later release may continue to point to this source asset while the bundled VLC components and their build inputs remain unchanged.
 
 ## Reviewed Build Components
 
 | Component | Version | License notes |
 | --- | --- | --- |
-| VLC | 3.0.24 | GPL-2.0 for the selected runtime build; VLC source also contains LGPL-2.1-or-later modules. |
+| VLC | 3.0.24 | GPL-2.0-or-later for the selected runtime build; VLC source also contains LGPL-2.1-or-later modules. |
 | FFmpeg | 8.1.2 | The VLC contribution rules identify the static FFmpeg build and its LGPLv2.1 and GPL license terms. |
 | zlib | 1.3.2 | zlib license. |
 | GSM | 1.0.13 | VLC's Windows FFmpeg contribution rules identify GSM as a build dependency. |
 | OpenJPEG | 2.5.4 | BSD-2-Clause. |
 | libsamplerate | 0.1.9 | The library source uses BSD-3-Clause terms; VLC's samplerate plugin declares the linked VLC module GPL-2.0-or-later. |
-| FreeType | 2.14.3 | Dual-licensed under the FreeType License and GPL; VLC's contribution rule requires its GPL build mode. |
 | MinGW-w64 / winpthreads | 14.0.0 | VLC's Windows FFmpeg contribution rules identify winpthreads; it uses MIT-style terms. |
 
-The review is based on the [VLC 3.0.24 source tree](https://code.videolan.org/videolan/vlc/-/tree/3.0.24), its module license headers, the FFmpeg, zlib, GSM, OpenJPEG, MinGW-w64, libsamplerate, and FreeType contribution rules, and the SHA-256-pinned VideoLAN Windows runtime archive.
+The review is based on the [VLC 3.0.24 source tree](https://code.videolan.org/videolan/vlc/-/tree/3.0.24), its module license headers, the FFmpeg, zlib, GSM, OpenJPEG, MinGW-w64, and libsamplerate contribution rules, and the SHA-256-pinned VideoLAN Windows runtime archive. The final package audit checks that the excluded FreeType plugin is absent.

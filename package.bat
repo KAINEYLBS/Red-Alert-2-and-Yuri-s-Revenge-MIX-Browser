@@ -4,95 +4,106 @@ set "EXIT_CODE=0"
 set "POWERSHELL=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 cd /d "%~dp0"
 if errorlevel 1 (
-    echo Could not change to the project directory: "%~dp0"
+    call :write_status Red "Could not change to the project directory: %~dp0"
     set "EXIT_CODE=1"
     goto :finish
 )
 
 set "PYTHON=.venv\Scripts\python.exe"
 if not exist "%PYTHON%" (
-    echo The project Python environment was not found at %PYTHON%.
-    echo Create the environment here using README instructions, or run the local link helper from your separate source checkout.
+    call :write_status Red "The project Python environment was not found at %PYTHON%."
+    call :write_status Red "Create the environment using README instructions, or run the local link helper from your separate source checkout."
     set "EXIT_CODE=1"
     goto :finish
 )
 
 set "PATH=%SystemRoot%\System32;%SystemRoot%;%SystemRoot%\System32\Wbem;%~dp0.venv\Scripts"
 if not exist "%POWERSHELL%" (
-    echo Windows PowerShell was not found at "%POWERSHELL%".
+    call :write_status Red "Windows PowerShell was not found at %POWERSHELL%."
     set "EXIT_CODE=1"
     goto :finish
 )
 
 "%PYTHON%" -m PyInstaller --version >nul 2>&1
 if errorlevel 1 (
-    echo PyInstaller is not installed in the project Python environment.
+    call :write_status Red "PyInstaller is not installed in the project Python environment."
+    set "EXIT_CODE=1"
+    goto :finish
+)
+"%PYTHON%" -c "import platform, ssl; from importlib.metadata import version; from tools.release_console import write_status; expected={'PySide6-Essentials':'6.11.1','shiboken6':'6.11.1','python-vlc':'3.0.21203','pyinstaller':'6.20.0','pycryptodomex':'3.23.0','cffi':'2.1.1','pycparser':'3.12','setuptools':'84.0.0','packaging':'26.3','typing-extensions':'4.16.0'}; actual={name:version(name) for name in expected}; failures=[name + ': expected ' + wanted + ', found ' + actual[name] for name,wanted in expected.items() if actual[name] != wanted]; failures += [] if platform.python_version() == '3.14.7' else ['CPython: expected 3.14.7, found ' + platform.python_version()]; failures += [] if ssl.OPENSSL_VERSION.startswith('OpenSSL 3.5.7 ') else ['OpenSSL: expected 3.5.7, found ' + ssl.OPENSSL_VERSION]; write_status('Reviewed package versions matched.' if not failures else '; '.join(failures), 'green' if not failures else 'red'); raise SystemExit(bool(failures))"
+if errorlevel 1 (
+    call :write_status Red "The Python environment does not match the reviewed component versions in THIRD_PARTY_NOTICES.md."
+    set "EXIT_CODE=1"
+    goto :finish
+)
+"%POWERSHELL%" -NoProfile -Command "function Get-Sha256([string]$Path) { $sha = [Security.Cryptography.SHA256]::Create(); $stream = [IO.File]::OpenRead($Path); try { return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant() } finally { $stream.Dispose(); $sha.Dispose() } }; $expected = '1aa1bf54f96ac3f335cafcf6672f6474590d6bcee5903b04eea81df828841fc9'; $installed = Get-Sha256 '.venv\Lib\site-packages\vlc.py'; $source = Get-Sha256 'third_party\python-vlc\vlc.py'; if ($installed -ne $expected -or $source -ne $expected) { Write-Error ('python-vlc source hash mismatch: installed=' + $installed + ', repository=' + $source); exit 1 }"
+if errorlevel 1 (
+    call :write_status Red "The replaceable python-vlc source does not match the reviewed 3.0.21203 file."
     set "EXIT_CODE=1"
     goto :finish
 )
 
 set "VLC_RUNTIME=%~dp0.runtime\vlc"
 if not exist "%VLC_RUNTIME%\libvlc.dll" (
-    echo The VLC runtime is missing at "%VLC_RUNTIME%".
-    echo Prepare VLC here using README instructions, or run the local link helper from your separate source checkout.
+    call :write_status Red "The VLC runtime is missing at %VLC_RUNTIME%."
+    call :write_status Red "Prepare VLC using README instructions, or run the local link helper from your separate source checkout."
     set "EXIT_CODE=1"
     goto :finish
 )
 "%POWERSHELL%" -NoProfile -Command "$ErrorActionPreference = 'Stop'; try { $version = (Get-Item -LiteralPath (Join-Path $env:VLC_RUNTIME 'libvlc.dll')).VersionInfo.FileVersion; if ($version -ne '3.0.24') { throw ('Expected VLC 3.0.24, found ' + $version + '.') }; exit 0 } catch { Write-Error $_; exit 1 }"
 if errorlevel 1 (
-    echo The prepared VLC runtime does not match the reviewed VLC 3.0.24 package.
+    call :write_status Red "The prepared VLC runtime does not match the reviewed VLC 3.0.24 package."
     set "EXIT_CODE=1"
     goto :finish
 )
 if not exist "%VLC_RUNTIME%\plugins\codec\libavcodec_plugin.dll" (
-    echo The VLC runtime is incomplete. Run tools\prepare_vlc_runtime.bat again.
+    call :write_status Red "The VLC runtime is incomplete. Run tools\prepare_vlc_runtime.bat again."
     set "EXIT_CODE=1"
     goto :finish
 )
 if not exist "%VLC_RUNTIME%\plugins\codec\libadpcm_plugin.dll" (
-    echo The VLC runtime is missing its ADPCM audio decoder. Run tools\prepare_vlc_runtime.bat again.
+    call :write_status Red "The VLC runtime is missing its ADPCM audio decoder. Run tools\prepare_vlc_runtime.bat again."
     set "EXIT_CODE=1"
     goto :finish
 )
 if not exist "%VLC_RUNTIME%\plugins\codec\libaraw_plugin.dll" (
-    echo The VLC runtime is missing its PCM audio decoder. Run tools\prepare_vlc_runtime.bat again.
+    call :write_status Red "The VLC runtime is missing its PCM audio decoder. Run tools\prepare_vlc_runtime.bat again."
     set "EXIT_CODE=1"
     goto :finish
 )
 if not exist "%VLC_RUNTIME%\plugins\demux\libwav_plugin.dll" (
-    echo The VLC runtime is missing its WAV demuxer. Run tools\prepare_vlc_runtime.bat again.
+    call :write_status Red "The VLC runtime is missing its WAV demuxer. Run tools\prepare_vlc_runtime.bat again."
     set "EXIT_CODE=1"
     goto :finish
 )
 if not exist "%VLC_RUNTIME%\plugins\audio_filter\libaudio_format_plugin.dll" (
-    echo The VLC runtime is missing its audio format plugin. Run tools\prepare_vlc_runtime.bat again.
+    call :write_status Red "The VLC runtime is missing its audio format plugin. Run tools\prepare_vlc_runtime.bat again."
     set "EXIT_CODE=1"
     goto :finish
 )
 if not exist "%VLC_RUNTIME%\plugins\audio_filter\libtrivial_channel_mixer_plugin.dll" (
-    echo The VLC runtime is missing its audio channel converter. Run tools\prepare_vlc_runtime.bat again.
+    call :write_status Red "The VLC runtime is missing its audio channel converter. Run tools\prepare_vlc_runtime.bat again."
     set "EXIT_CODE=1"
     goto :finish
 )
 if not exist "%VLC_RUNTIME%\COPYING.txt" (
-    echo The VLC GPL license file is missing from the prepared runtime.
+    call :write_status Red "The VLC GPL license file is missing from the prepared runtime."
     set "EXIT_CODE=1"
     goto :finish
 )
 if not exist "%VLC_RUNTIME%\README.txt" (
-    echo The VLC runtime README is missing from the prepared runtime.
+    call :write_status Red "The VLC runtime README is missing from the prepared runtime."
     set "EXIT_CODE=1"
     goto :finish
 )
 if not exist "dist" goto :dist_cleaned
-echo The entire dist directory will be deleted before packaging:
-echo "%CD%\dist"
+call :write_status Yellow "The entire dist directory will be deleted before packaging: %CD%\dist"
 set "CLEAN_CONFIRM="
 set /p "CLEAN_CONFIRM=Enter Y to continue: "
 if /I not "%CLEAN_CONFIRM%"=="Y" goto :package_cancelled
 rmdir /s /q "dist"
 if exist "dist" (
-    echo Could not clear the existing dist directory. Close files using it and retry.
+    call :write_status Red "Could not clear the existing dist directory. Close files using it and retry."
     set "EXIT_CODE=1"
     goto :finish
 )
@@ -107,7 +118,7 @@ if exist "dist" (
     --name RA2AYRMB ^
     --icon "%~dp0mix_browser\data\icons\MIX-EXE.ico" ^
     --additional-hooks-dir "%~dp0tools\pyinstaller_hooks" ^
-    --hidden-import vlc ^
+    --exclude-module vlc ^
     --exclude-module PySide6.QtMultimedia ^
     --exclude-module PySide6.QtMultimediaWidgets ^
     --exclude-module PySide6.QtPdf ^
@@ -124,24 +135,30 @@ if exist "dist" (
     --add-data "%~dp0mix_browser\translations\ra2ayrmb_zh_CN.qm;mix_browser\translations" ^
     main.py
 if errorlevel 1 (
-    echo Packaging failed. See the PyInstaller output above.
+    call :write_status Red "Packaging failed. See the PyInstaller output above."
     set "EXIT_CODE=1"
     goto :finish
 )
 
 if not exist "dist\RA2AYRMB\RA2AYRMB.exe" (
-    echo Packaging completed without the expected executable: dist\RA2AYRMB\RA2AYRMB.exe
+    call :write_status Red "Packaging completed without the expected executable: dist\RA2AYRMB\RA2AYRMB.exe"
     set "EXIT_CODE=1"
     goto :finish
 )
 
+if not exist "dist\RA2AYRMB\python-vlc" mkdir "dist\RA2AYRMB\python-vlc"
+if errorlevel 1 goto :python_vlc_copy_failed
+copy /b "%~dp0third_party\python-vlc\vlc.py" "dist\RA2AYRMB\python-vlc\vlc.py" >nul
+if errorlevel 1 goto :python_vlc_copy_failed
+if not exist "dist\RA2AYRMB\python-vlc\vlc.py" goto :python_vlc_copy_failed
+
 if not exist "dist\RA2AYRMB\_internal\PySide6\plugins\styles\qmodernwindowsstyle.dll" (
-    echo Packaging omitted the Qt Windows 11 style plugin required to match source UI rendering.
+    call :write_status Red "Packaging omitted the Qt Windows 11 style plugin required to match source UI rendering."
     set "EXIT_CODE=1"
     goto :finish
 )
 if exist "dist\RA2AYRMB\_internal\setuptools\_vendor\jaraco\text\Lorem ipsum.txt" (
-    echo Packaging included an unused setuptools Lorem ipsum sample file.
+    call :write_status Red "Packaging included an unused setuptools Lorem ipsum sample file."
     set "EXIT_CODE=1"
     goto :finish
 )
@@ -203,19 +220,6 @@ for /d %%D in (.venv\Lib\site-packages\pycryptodomex-*.dist-info) do (
 if not defined PYCRYPTODOMEX_LICENSE_FOUND goto :license_copy_failed
 if not exist "%LICENSE_ROOT%\pycryptodomex-LICENSE.rst" goto :license_copy_failed
 
-set "PYTHON_VLC_LICENSE_FOUND="
-for /d %%D in (.venv\Lib\site-packages\python_vlc-*.dist-info) do (
-    if exist "%%D\COPYING" (
-        if not exist "%LICENSE_ROOT%\python-vlc" mkdir "%LICENSE_ROOT%\python-vlc"
-        if errorlevel 1 goto :license_copy_failed
-        copy /b "%%D\COPYING" "%LICENSE_ROOT%\python-vlc\COPYING" >nul
-        if errorlevel 1 goto :license_copy_failed
-        set "PYTHON_VLC_LICENSE_FOUND=1"
-    )
-)
-if not defined PYTHON_VLC_LICENSE_FOUND goto :license_copy_failed
-if not exist "%LICENSE_ROOT%\python-vlc\COPYING" goto :license_copy_failed
-
 set "PYINSTALLER_LICENSE_FOUND="
 for /d %%D in (.venv\Lib\site-packages\pyinstaller-*.dist-info) do (
     if exist "%%D\licenses\COPYING.txt" (
@@ -229,15 +233,36 @@ for /d %%D in (.venv\Lib\site-packages\pyinstaller-*.dist-info) do (
 if not defined PYINSTALLER_LICENSE_FOUND goto :license_copy_failed
 if not exist "%LICENSE_ROOT%\PyInstaller\COPYING.txt" goto :license_copy_failed
 
+set "SETUPTOOLS_LICENSE_FOUND="
+for /d %%D in (.venv\Lib\site-packages\setuptools-*.dist-info) do (
+    if exist "%%D\licenses\LICENSE" (
+        if not exist "%LICENSE_ROOT%\setuptools" mkdir "%LICENSE_ROOT%\setuptools"
+        if errorlevel 1 goto :license_copy_failed
+        copy /b "%%D\licenses\LICENSE" "%LICENSE_ROOT%\setuptools\LICENSE" >nul
+        if errorlevel 1 goto :license_copy_failed
+        set "SETUPTOOLS_LICENSE_FOUND=1"
+    )
+)
+if not defined SETUPTOOLS_LICENSE_FOUND goto :license_copy_failed
+if not exist "%LICENSE_ROOT%\setuptools\LICENSE" goto :license_copy_failed
+
+robocopy "%~dp0.venv\Lib\site-packages\setuptools\_vendor" "%LICENSE_ROOT%\setuptools-vendor" LICENSE* /S /R:1 /W:1 >nul
+if errorlevel 8 goto :license_copy_failed
+
 if not exist "%LICENSE_ROOT%\VLC" mkdir "%LICENSE_ROOT%\VLC"
 if errorlevel 1 goto :license_copy_failed
 copy /b "%VLC_RUNTIME%\COPYING.txt" "%LICENSE_ROOT%\VLC\COPYING.txt" >nul
 if errorlevel 1 goto :license_copy_failed
 copy /b "%VLC_RUNTIME%\README.txt" "%LICENSE_ROOT%\VLC\README.txt" >nul
 if errorlevel 1 goto :license_copy_failed
+copy /b "%~dp0docs\licenses\VLC\SOURCE_CODE_OFFER.txt" "%LICENSE_ROOT%\VLC\SOURCE_CODE_OFFER.txt" >nul
+if errorlevel 1 goto :license_copy_failed
 robocopy "%~dp0docs\licenses" "%LICENSE_ROOT%" /E /R:1 /W:1 /XD __pycache__ PyInstaller /XF *.pyc *.pyo >nul
 if errorlevel 8 goto :license_copy_failed
-for %%F in (OpenSSL\LICENSE.txt Mesa\MIT.txt Mesa\Khronos.txt Mesa\Boost-1.0.txt LLVM\LICENSE.TXT CFFI\LICENSE pycparser\LICENSE VLC\COPYING.LIB Lucide\ISC.txt) do (
+if not exist "%LICENSE_ROOT%\GPL-3.0.txt" goto :license_copy_failed
+if not exist "%LICENSE_ROOT%\RA2AYRMB-WINDOWS-DISTRIBUTION.txt" goto :license_copy_failed
+if not exist "%LICENSE_ROOT%\CORRESPONDING_SOURCE_OFFER.txt" goto :license_copy_failed
+for %%F in (Qt\THIRD-PARTY-NOTICES.md Qt\Apache-2.0.txt Qt\BLAKE2-COPYING.txt Qt\BSD-2-Clause.txt Qt\BSD-3-Clause.txt Qt\CC0-1.0.txt Qt\double-conversion-LICENSE.txt Qt\FTL.txt Qt\harfbuzz-COPYING.txt Qt\ICC-LICENSE.txt Qt\IJG.txt Qt\libjpeg-LICENSE.txt Qt\Libpng.txt Qt\libpng-2.0.txt Qt\MIT.txt Qt\MIT-open-group.txt Qt\MPL-2.0.txt Qt\PCRE2-BSD-3-Clause-Exception.txt Qt\SHA1-Public-Domain.txt Qt\Zlib.txt Microsoft\REDIST.txt Microsoft\Visual-C++-Redistributable.md Python\Expat-COPYING.txt Python\libmpdec-LICENSE.txt Python\Unicode-LICENSE.txt Python\zlib-ng-LICENSE.txt packaging\LICENSE packaging\LICENSE.APACHE packaging\LICENSE.BSD typing_extensions\LICENSE python-vlc\COPYING VLC\COPYING.LIB VLC\SOURCE_CODE_OFFER.txt Lucide\ISC.txt setuptools\LICENSE setuptools-vendor\backports.tarfile-1.2.0.dist-info\LICENSE setuptools-vendor\jaraco.text-4.0.0.dist-info\LICENSE setuptools-vendor\jaraco_context-6.1.0.dist-info\licenses\LICENSE setuptools-vendor\jaraco_functools-4.4.0.dist-info\licenses\LICENSE setuptools-vendor\more_itertools-10.8.0.dist-info\licenses\LICENSE setuptools-vendor\packaging-26.0.dist-info\licenses\LICENSE setuptools-vendor\packaging-26.0.dist-info\licenses\LICENSE.APACHE setuptools-vendor\packaging-26.0.dist-info\licenses\LICENSE.BSD setuptools-vendor\tomli-2.4.0.dist-info\licenses\LICENSE setuptools-vendor\wheel-0.46.3.dist-info\licenses\LICENSE.txt) do (
     if not exist "%LICENSE_ROOT%\%%F" goto :license_copy_failed
 )
 copy /b "%~dp0docs\vlc_runtime_licenses.md" "%LICENSE_ROOT%\VLC\PLUGIN_LICENSES.md" >nul
@@ -249,14 +274,19 @@ set "EXIT_CODE=0"
 goto :finish
 
 :license_copy_failed
-echo Packaging stopped after the executable was built because third-party license files could not be collected.
-echo Do not distribute this application build until its license bundle is complete.
+call :write_status Red "Packaging stopped after the executable was built because third-party license files could not be collected."
+call :write_status Red "Do not distribute this application build until its license bundle is complete."
 set "EXIT_CODE=1"
 goto :finish
 
 :vlc_copy_failed
-echo Packaging stopped after the executable was built because the reduced VLC runtime could not be copied.
-echo Required VLC files include "%VLC_DIST%\libvlc.dll" and "%VLC_DIST%\plugins\audio_filter\libtrivial_channel_mixer_plugin.dll".
+call :write_status Red "Packaging stopped after the executable was built because the reduced VLC runtime could not be copied."
+call :write_status Red "Required VLC files include %VLC_DIST%\libvlc.dll and %VLC_DIST%\plugins\audio_filter\libtrivial_channel_mixer_plugin.dll."
+set "EXIT_CODE=1"
+goto :finish
+
+:python_vlc_copy_failed
+call :write_status Red "Packaging stopped after the executable was built because the replaceable python-vlc binding could not be copied."
 set "EXIT_CODE=1"
 goto :finish
 
@@ -271,9 +301,11 @@ if not "%RA2AYRMB_RELEASE_ORCHESTRATOR%"=="1" pause
 exit /b %EXIT_CODE%
 
 :write_status
+set "STATUS_COLOR=%~1"
+set "STATUS_TEXT=%~2"
 if exist "%POWERSHELL%" (
-    "%POWERSHELL%" -NoProfile -Command "Write-Host '%~2' -ForegroundColor %~1"
+    "%POWERSHELL%" -NoProfile -Command "Write-Host $env:STATUS_TEXT -ForegroundColor $env:STATUS_COLOR"
 ) else (
-    echo %~2
+    echo %STATUS_TEXT%
 )
 exit /b 0

@@ -6,14 +6,18 @@ build-backend = "setuptools.build_meta"
 name = "ra2-mix-browser"
 dynamic = ["version"]
 description = "A desktop and automation interface for browsing Red Alert 2 and Yuri's Revenge MIX archives"
-license = "MIT"
+# The source distribution has file-scoped, mixed licensing. See the root
+# LICENSE and THIRD_PARTY_NOTICES.md instead of assigning one package-wide grant.
 license-files = [
     "LICENSE",
+    "LICENSE-GPL-2.0-or-later.txt",
     "LGPL-3.0-only.txt",
     "mix_browser/data/name_sources/xcc/COPYING",
+    "docs/licenses/VLC/SOURCE_CODE_OFFER.txt",
     "docs/licenses/Lucide/ISC.txt",
     "docs/licenses/OpenSSL/LICENSE.txt",
     "docs/licenses/PyInstaller/COPYING.txt",
+    "docs/licenses/GPL-3.0.txt",
 ]
 requires-python = ">=3.10"
 dependencies = [

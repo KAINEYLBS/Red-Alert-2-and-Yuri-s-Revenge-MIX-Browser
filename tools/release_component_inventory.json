@@ -1,0 +1,450 @@
+{
+  "schema_version": 1,
+  "components": [
+    {
+      "id": "project-application",
+      "name": "RA2AYRMB application code",
+      "license": "MIT OR GPL-2.0-or-later",
+      "scope": "Repository and source archive; its GPL-2.0-or-later option permits the Windows distribution to use GPL-3.0 for this release",
+      "evidence": ["LICENSE", "LICENSE-GPL-2.0-or-later.txt"],
+      "binary_notices": ["RA2AYRMB/licenses/RA2AYRMB-MIT.txt", "RA2AYRMB/licenses/GPL-3.0.txt"],
+      "review": "The Windows package notice selects the GPL-3.0 grant for this release; the source archive retains both project-authored source grants."
+    },
+    {
+      "id": "windows-executable-distribution",
+      "name": "RA2AYRMB Windows combined application distribution",
+      "license": "GPL-3.0",
+      "scope": "Combined application distribution; separately licensed libraries retain their own terms",
+      "evidence": ["docs/licenses/RA2AYRMB-WINDOWS-DISTRIBUTION.txt", "docs/licenses/GPL-3.0.txt", "docs/licensing.md"],
+      "binary_notices": ["RA2AYRMB/licenses/RA2AYRMB-WINDOWS-DISTRIBUTION.txt", "RA2AYRMB/licenses/GPL-3.0.txt"],
+      "review": "The project GPL-2.0-or-later grant permits GPL-3.0, which is the version used by the included XCC data; this package does not claim a later-version option for the combined work."
+    },
+    {
+      "id": "xcc-name-data",
+      "name": "XCC MIX name lists",
+      "license": "GPL-3.0",
+      "scope": "Repository, source archive, and Windows package data; not covered by the project-code licenses",
+      "evidence": ["mix_browser/data/name_sources/xcc/COPYING"],
+      "source_paths": [
+        "mix_browser/data/name_sources/xcc/ra2 mix description.txt",
+        "mix_browser/data/name_sources/xcc/td mix description.txt",
+        "mix_browser/data/name_sources/xcc/ts mix description.txt"
+      ],
+      "binary_notices": ["RA2AYRMB/licenses/XCC/COPYING"],
+      "binary_paths": [
+        "RA2AYRMB/_internal/mix_browser/data/name_sources/xcc/ra2 mix description.txt",
+        "RA2AYRMB/_internal/mix_browser/data/name_sources/xcc/td mix description.txt",
+        "RA2AYRMB/_internal/mix_browser/data/name_sources/xcc/ts mix description.txt"
+      ],
+      "review": "The release checker matches the GPL-3.0 text and each of the three data files against the source and executable archives."
+    },
+    {
+      "id": "github-mark",
+      "name": "GitHub mark from Simple Icons",
+      "license": "CC0-1.0",
+      "scope": "Repository source and Windows package icon asset",
+      "evidence": ["docs/licensing.md", "mix_browser/data/icons/github.svg"],
+      "binary_paths": ["RA2AYRMB/_internal/mix_browser/data/icons/github.svg"],
+      "review": "The release checker requires the documented source asset and its packaged path."
+    },
+    {
+      "id": "lucide-icon",
+      "name": "Lucide Square Pen icon",
+      "license": "ISC",
+      "scope": "Repository source and Windows package icon asset",
+      "evidence": ["docs/licenses/Lucide/ISC.txt", "mix_browser/data/icons/square-pen.svg"],
+      "binary_notices": ["RA2AYRMB/licenses/Lucide/ISC.txt"],
+      "binary_paths": ["RA2AYRMB/_internal/mix_browser/data/icons/square-pen.svg"],
+      "review": "The release checker requires the documented source asset and its ISC notice in the executable archive."
+    },
+    {
+      "id": "pyinstaller-hook",
+      "name": "Adapted PyInstaller setuptools data hook",
+      "license": "GPL-2.0-or-later WITH PyInstaller bootloader exception",
+      "scope": "Repository source and source archive",
+      "evidence": ["docs/licenses/PyInstaller/COPYING.txt", "tools/pyinstaller_hooks/hook-setuptools._vendor.jaraco.text.py"],
+      "review": "The hook retains its PyInstaller license header, and the executable package contains the exact PyInstaller COPYING text used by the pinned build."
+    },
+    {
+      "id": "cpython",
+      "name": "CPython runtime",
+      "license": "Python Software Foundation License and separately licensed bundled components",
+      "scope": "Windows package",
+      "evidence": ["THIRD_PARTY_NOTICES.md"],
+      "binary_notices": ["RA2AYRMB/licenses/Python/LICENSE.txt"],
+      "review": "The package build pins CPython 3.14.7 and copies its base installation LICENSE.txt, which includes PSF-2.0 and the bundled bzip2, libffi, and Zstandard notices. Expat, libmpdec, Unicode data, and zlib-ng are inventoried separately."
+    },
+    {
+      "id": "cpython-expat",
+      "name": "CPython Expat parser",
+      "license": "MIT",
+      "scope": "Windows package; pyexpat extension",
+      "evidence": ["THIRD_PARTY_NOTICES.md", "docs/licenses/Python/Expat-COPYING.txt"],
+      "binary_notices": ["RA2AYRMB/licenses/Python/Expat-COPYING.txt"],
+      "binary_paths": ["RA2AYRMB/_internal/pyexpat.pyd"],
+      "review": "CPython 3.14.7 bundles Expat 2.8.2 in pyexpat.pyd; the exact vendored COPYING notice is included in the executable package."
+    },
+    {
+      "id": "cpython-libmpdec",
+      "name": "CPython decimal arithmetic library",
+      "license": "BSD-3-Clause",
+      "scope": "Windows package; _decimal extension",
+      "evidence": ["THIRD_PARTY_NOTICES.md", "docs/licenses/Python/libmpdec-LICENSE.txt"],
+      "binary_notices": ["RA2AYRMB/licenses/Python/libmpdec-LICENSE.txt"],
+      "binary_paths": ["RA2AYRMB/_internal/_decimal.pyd"],
+      "review": "CPython 3.14.7 bundles libmpdec 4.0.0 in _decimal.pyd; the package reproduces its source copyright and BSD-3-Clause conditions."
+    },
+    {
+      "id": "unicode-ucd",
+      "name": "CPython Unicode Character Database",
+      "license": "Unicode License v3",
+      "scope": "Windows package; unicodedata extension data",
+      "evidence": ["THIRD_PARTY_NOTICES.md", "docs/licenses/Python/Unicode-LICENSE.txt"],
+      "binary_notices": ["RA2AYRMB/licenses/Python/Unicode-LICENSE.txt"],
+      "binary_paths": ["RA2AYRMB/_internal/unicodedata.pyd"],
+      "review": "The CPython 3.14.7 generated Unicode database identifies UCD 16.0.0; the Unicode License v3 notice accompanies unicodedata.pyd."
+    },
+    {
+      "id": "cpython-zlib-ng",
+      "name": "CPython zlib-ng implementation",
+      "license": "Zlib License",
+      "scope": "Windows package; bundled in the CPython interpreter DLL",
+      "evidence": ["THIRD_PARTY_NOTICES.md", "docs/licenses/Python/zlib-ng-LICENSE.txt"],
+      "binary_notices": ["RA2AYRMB/licenses/Python/LICENSE.txt", "RA2AYRMB/licenses/Python/zlib-ng-LICENSE.txt"],
+      "binary_paths": ["RA2AYRMB/_internal/python314.dll"],
+      "review": "CPython 3.14.7 pins zlib-ng 2.2.4 and the selected runtime reports 1.3.1.zlib-ng; its Zlib license is included alongside the CPython license."
+    },
+    {
+      "id": "openssl",
+      "name": "OpenSSL runtime",
+      "license": "Apache-2.0",
+      "scope": "Windows package via CPython",
+      "evidence": ["docs/licenses/OpenSSL/LICENSE.txt"],
+      "binary_notices": ["RA2AYRMB/licenses/OpenSSL/LICENSE.txt"],
+      "review": "The package build pins OpenSSL 3.5.7 and includes its Apache-2.0 license text."
+    },
+    {
+      "id": "qt-pyside",
+      "name": "PySide6 Essentials, shiboken6, and Qt",
+      "license": "LGPL-3.0-only distribution option",
+      "scope": "Windows package; dynamically loaded framework and binding files",
+      "distribution_names": ["PySide6-Essentials"],
+      "evidence": ["LGPL-3.0-only.txt", "THIRD_PARTY_NOTICES.md"],
+      "binary_notices": [
+        "RA2AYRMB/licenses/Qt/LGPL-3.0-only.txt",
+        "RA2AYRMB/licenses/Qt/THIRD-PARTY-NOTICES.md",
+        "RA2AYRMB/licenses/Qt/Apache-2.0.txt",
+        "RA2AYRMB/licenses/Qt/BLAKE2-COPYING.txt",
+        "RA2AYRMB/licenses/Qt/BSD-2-Clause.txt",
+        "RA2AYRMB/licenses/Qt/BSD-3-Clause.txt",
+        "RA2AYRMB/licenses/Qt/CC0-1.0.txt",
+        "RA2AYRMB/licenses/Qt/double-conversion-LICENSE.txt",
+        "RA2AYRMB/licenses/Qt/FTL.txt",
+        "RA2AYRMB/licenses/Qt/harfbuzz-COPYING.txt",
+        "RA2AYRMB/licenses/Qt/ICC-LICENSE.txt",
+        "RA2AYRMB/licenses/Qt/IJG.txt",
+        "RA2AYRMB/licenses/Qt/libjpeg-LICENSE.txt",
+        "RA2AYRMB/licenses/Qt/Libpng.txt",
+        "RA2AYRMB/licenses/Qt/libpng-2.0.txt",
+        "RA2AYRMB/licenses/Qt/MIT.txt",
+        "RA2AYRMB/licenses/Qt/MIT-open-group.txt",
+        "RA2AYRMB/licenses/Qt/MPL-2.0.txt",
+        "RA2AYRMB/licenses/Qt/PCRE2-BSD-3-Clause-Exception.txt",
+        "RA2AYRMB/licenses/Qt/SHA1-Public-Domain.txt",
+        "RA2AYRMB/licenses/Qt/Zlib.txt"
+      ],
+      "review": "The release checker inventories every packaged Qt DLL, PYD, and plugin, requires every maintained Qt attribution file, and verifies the corresponding-source links and separate replaceable library layout."
+    },
+    {
+      "id": "python-vlc",
+      "name": "python-vlc bindings",
+      "license": "LGPL-2.1-or-later",
+      "scope": "Windows package; binding is a replaceable Python source file outside the PyInstaller archive",
+      "distribution_names": ["python-vlc"],
+      "evidence": ["THIRD_PARTY_NOTICES.md"],
+      "binary_notices": ["RA2AYRMB/licenses/python-vlc/COPYING"],
+      "source_paths": ["third_party/python-vlc/vlc.py"],
+      "binary_paths": ["RA2AYRMB/python-vlc/vlc.py"],
+      "source_sha256": "1aa1bf54f96ac3f335cafcf6672f6474590d6bcee5903b04eea81df828841fc9",
+      "review": "The source and executable archives must contain the same SHA-256-pinned vlc.py outside the EXE; the application loads it from python-vlc/vlc.py and the EXE audit blocks a frozen vlc module."
+    },
+    {
+      "id": "vlc-runtime",
+      "name": "VLC 3.0.24 runtime and selected plugins",
+      "license": "GPL-2.0-or-later build with LGPL-2.1-or-later modules",
+      "scope": "Windows package",
+      "evidence": ["docs/vlc_runtime_licenses.md", "tools/vlc_runtime_plugins.txt"],
+      "binary_notices": ["RA2AYRMB/licenses/VLC/COPYING.txt", "RA2AYRMB/licenses/VLC/COPYING.LIB", "RA2AYRMB/licenses/VLC/PLUGIN_LICENSES.md", "RA2AYRMB/licenses/VLC/SOURCE_CODE_OFFER.txt"],
+      "source_archive": "RA2AYRMB-vlc-source-3.0.24.7z",
+      "review": "The release checker matches the packaged plugin set to this review and verifies the source archive manifest and pinned inputs."
+    },
+    {
+      "id": "vlc-ffmpeg",
+      "name": "FFmpeg and VLC build dependencies",
+      "license": "FFmpeg LGPL/GPL terms; zlib; GSM; OpenJPEG BSD-2-Clause; libsamplerate BSD-3-Clause; MinGW-w64/winpthreads MIT-style terms",
+      "scope": "Incorporated in the Windows VLC runtime; source offered separately",
+      "evidence": ["docs/vlc_runtime_licenses.md"],
+      "binary_notices": ["RA2AYRMB/licenses/VLC/SOURCE_CODE_OFFER.txt"],
+      "source_archive": "RA2AYRMB-vlc-source-3.0.24.7z",
+      "review": "The separate source archive contains the selected VLC source, pinned FFmpeg commit, VLC build recipes and patches, and checksummed dependency source archives; the package excludes the FreeType plugin."
+    },
+    {
+      "id": "pycryptodomex",
+      "name": "pycryptodomex",
+      "license": "BSD-2-Clause and public-domain portions",
+      "scope": "Windows package",
+      "distribution_names": ["pycryptodomex"],
+      "evidence": ["THIRD_PARTY_NOTICES.md"],
+      "binary_notices": ["RA2AYRMB/licenses/pycryptodomex-LICENSE.rst"],
+      "review": "The package build pins PyCryptodome 3.23.0 and copies its distribution license file."
+    },
+    {
+      "id": "pyinstaller-runtime",
+      "name": "PyInstaller bootloader and runtime hooks",
+      "license": "GPL-2.0-or-later with bootloader exception; Apache-2.0 runtime hooks",
+      "scope": "Windows executable",
+      "distribution_names": ["PyInstaller"],
+      "evidence": ["docs/licenses/PyInstaller/COPYING.txt", "THIRD_PARTY_NOTICES.md"],
+      "binary_notices": ["RA2AYRMB/licenses/PyInstaller/COPYING.txt"],
+      "review": "The pinned PyInstaller build embeds its bootloader and runtime hooks; the package carries the pinned distribution's COPYING.txt including its exception."
+    },
+    {
+      "id": "setuptools",
+      "name": "setuptools",
+      "license": "MIT",
+      "scope": "Windows package when collected by PyInstaller",
+      "distribution_names": ["setuptools"],
+      "evidence": ["THIRD_PARTY_NOTICES.md", "package.bat"],
+      "binary_notices": ["RA2AYRMB/licenses/setuptools/LICENSE"],
+      "review": "The PYZ audit confirms setuptools modules are frozen and the executable carries the pinned distribution's MIT license."
+    },
+    {
+      "id": "setuptools-vendor-permissive",
+      "name": "setuptools vendored permissive modules",
+      "license": "MIT; Apache-2.0; Apache-2.0 OR BSD-2-Clause",
+      "scope": "Windows package for modules present in the frozen dependency closure",
+      "evidence": ["THIRD_PARTY_NOTICES.md", "package.bat"],
+      "binary_notices": [
+        "RA2AYRMB/licenses/setuptools-vendor/backports.tarfile-1.2.0.dist-info/LICENSE",
+        "RA2AYRMB/licenses/setuptools-vendor/jaraco.text-4.0.0.dist-info/LICENSE",
+        "RA2AYRMB/licenses/setuptools-vendor/jaraco_context-6.1.0.dist-info/licenses/LICENSE",
+        "RA2AYRMB/licenses/setuptools-vendor/jaraco_functools-4.4.0.dist-info/licenses/LICENSE",
+        "RA2AYRMB/licenses/setuptools-vendor/more_itertools-10.8.0.dist-info/licenses/LICENSE",
+        "RA2AYRMB/licenses/setuptools-vendor/packaging-26.0.dist-info/licenses/LICENSE",
+        "RA2AYRMB/licenses/setuptools-vendor/packaging-26.0.dist-info/licenses/LICENSE.APACHE",
+        "RA2AYRMB/licenses/setuptools-vendor/packaging-26.0.dist-info/licenses/LICENSE.BSD",
+        "RA2AYRMB/licenses/setuptools-vendor/tomli-2.4.0.dist-info/licenses/LICENSE",
+        "RA2AYRMB/licenses/setuptools-vendor/wheel-0.46.3.dist-info/licenses/LICENSE.txt"
+      ],
+      "review": "The PYZ audit lists the frozen setuptools vendor modules; the package includes the corresponding vendored license files."
+    },
+    {
+      "id": "mesa-llvm",
+      "name": "Qt software OpenGL renderer components",
+      "license": "MIT, Khronos, Boost-1.0, and University of Illinois/NCSA",
+      "scope": "Windows package when opengl32sw.dll is shipped",
+      "evidence": ["THIRD_PARTY_NOTICES.md"],
+      "binary_notices": ["RA2AYRMB/licenses/Mesa/MIT.txt", "RA2AYRMB/licenses/Mesa/Khronos.txt", "RA2AYRMB/licenses/Mesa/Boost-1.0.txt", "RA2AYRMB/licenses/LLVM/LICENSE.TXT"],
+      "review": "The PySide6 package includes opengl32sw.dll; the executable archive must contain the three Mesa notices and the LLVM license."
+    },
+    {
+      "id": "cffi-pycparser",
+      "name": "CFFI and pycparser",
+      "license": "MIT-0 and BSD-3-Clause",
+      "scope": "Windows package when included in the frozen dependency closure",
+      "evidence": ["THIRD_PARTY_NOTICES.md"],
+      "binary_notices": ["RA2AYRMB/licenses/CFFI/LICENSE", "RA2AYRMB/licenses/pycparser/LICENSE"],
+      "review": "The PYZ audit confirms CFFI and pycparser modules and requires both corresponding license texts."
+    },
+    {
+      "id": "mcp-sdk",
+      "name": "MCP Python SDK",
+      "license": "MIT",
+      "scope": "Declared source-install dependency; excluded from the desktop Windows package",
+      "distribution_names": ["mcp"],
+      "evidence": ["pyproject.toml", "THIRD_PARTY_NOTICES.md"],
+      "review": "Keep this marked as not bundled in the desktop package unless packaging behavior changes."
+    },
+    {
+      "id": "packaging",
+      "name": "packaging",
+      "license": "Apache-2.0 OR BSD-2-Clause",
+      "scope": "Windows package; top-level 26.3 and setuptools-vendored 26.0 modules are frozen",
+      "distribution_names": ["packaging"],
+      "evidence": ["THIRD_PARTY_NOTICES.md", "docs/licenses/packaging/LICENSE", "docs/licenses/packaging/LICENSE.APACHE", "docs/licenses/packaging/LICENSE.BSD"],
+      "binary_notices": ["RA2AYRMB/licenses/packaging/LICENSE", "RA2AYRMB/licenses/packaging/LICENSE.APACHE", "RA2AYRMB/licenses/packaging/LICENSE.BSD", "RA2AYRMB/licenses/setuptools-vendor/packaging-26.0.dist-info/licenses/LICENSE.APACHE", "RA2AYRMB/licenses/setuptools-vendor/packaging-26.0.dist-info/licenses/LICENSE.BSD"],
+      "review": "The PYZ audit requires the top-level packaging module and separately records setuptools' vendored packaging modules; both versioned source locations and license choices are identified."
+    },
+    {
+      "id": "typing-extensions",
+      "name": "typing_extensions",
+      "license": "PSF-2.0",
+      "scope": "Windows package; Python compatibility module frozen in the PyInstaller archive",
+      "distribution_names": ["typing_extensions"],
+      "evidence": ["THIRD_PARTY_NOTICES.md", "docs/licenses/typing_extensions/LICENSE"],
+      "binary_notices": ["RA2AYRMB/licenses/typing_extensions/LICENSE"],
+      "review": "The PYZ audit confirms this module is frozen; the package includes its license and corresponding source version."
+    },
+    {
+      "id": "msvc-runtime",
+      "name": "Microsoft Visual C++ runtime files",
+      "license": "Microsoft Visual Studio Redistributable Code terms",
+      "scope": "Windows package; signed runtime DLLs copied by CPython and PySide6 distributions",
+      "evidence": ["THIRD_PARTY_NOTICES.md", "docs/licenses/Microsoft/Visual-C++-Redistributable.md"],
+      "binary_notices": ["RA2AYRMB/licenses/Microsoft/REDIST.txt", "RA2AYRMB/licenses/Microsoft/Visual-C++-Redistributable.md"],
+      "review": "Every packaged MSVCP140 and VCRUNTIME140 DLL is classified; the notice links the Microsoft terms and redistribution guidance applicable to these runtime files."
+    }
+  ],
+  "artifacts": {
+    "source": {
+      "filename": "RA2AYRMB-source-{version}.7z",
+      "required_paths": [
+        "LICENSE",
+        "LICENSE-GPL-2.0-or-later.txt",
+        "THIRD_PARTY_NOTICES.md",
+        "docs/licenses/GPL-3.0.txt",
+        "docs/licenses/RA2AYRMB-WINDOWS-DISTRIBUTION.txt",
+        "tools/release_component_inventory.json",
+        "tools/check_open_source_release.py",
+        "tools/release_console.py",
+        "tools/check_release_licenses.bat",
+        "tools/check_release_licenses.ps1",
+        "mix_browser/data/name_sources/xcc/COPYING",
+        "mix_browser/data/name_sources/xcc/ra2 mix description.txt",
+        "mix_browser/data/name_sources/xcc/td mix description.txt",
+        "mix_browser/data/name_sources/xcc/ts mix description.txt",
+        "docs/licenses/VLC/SOURCE_CODE_OFFER.txt",
+        "docs/licenses/CORRESPONDING_SOURCE_OFFER.txt",
+        "docs/licenses/Python/Expat-COPYING.txt",
+        "docs/licenses/Python/libmpdec-LICENSE.txt",
+        "docs/licenses/Python/Unicode-LICENSE.txt",
+        "docs/licenses/Python/zlib-ng-LICENSE.txt",
+        "docs/licenses/packaging/LICENSE",
+        "tools/audit_release_binary.py",
+        "tools/stage_release_upload.ps1",
+        "tools/write_github_release_info.py",
+        "tools/package_vlc_source.ps1",
+        "tools/compare_vlc_release.ps1",
+        "third_party/python-vlc/README.md",
+        "third_party/python-vlc/vlc.py"
+      ]
+    },
+    "executable": {
+      "filename": "RA2AYRMB-executable-{version}.7z",
+      "required_paths": [
+        "RA2AYRMB/RA2AYRMB.exe",
+        "RA2AYRMB/licenses/RA2AYRMB-MIT.txt",
+        "RA2AYRMB/licenses/GPL-3.0.txt",
+        "RA2AYRMB/licenses/RA2AYRMB-WINDOWS-DISTRIBUTION.txt",
+        "RA2AYRMB/licenses/THIRD_PARTY_NOTICES.md",
+        "RA2AYRMB/licenses/Qt/LGPL-3.0-only.txt",
+        "RA2AYRMB/licenses/Qt/THIRD-PARTY-NOTICES.md",
+        "RA2AYRMB/licenses/Qt/Apache-2.0.txt",
+        "RA2AYRMB/licenses/Qt/BLAKE2-COPYING.txt",
+        "RA2AYRMB/licenses/Qt/BSD-2-Clause.txt",
+        "RA2AYRMB/licenses/Qt/BSD-3-Clause.txt",
+        "RA2AYRMB/licenses/Qt/CC0-1.0.txt",
+        "RA2AYRMB/licenses/Qt/double-conversion-LICENSE.txt",
+        "RA2AYRMB/licenses/Qt/FTL.txt",
+        "RA2AYRMB/licenses/Qt/harfbuzz-COPYING.txt",
+        "RA2AYRMB/licenses/Qt/ICC-LICENSE.txt",
+        "RA2AYRMB/licenses/Qt/IJG.txt",
+        "RA2AYRMB/licenses/Qt/libjpeg-LICENSE.txt",
+        "RA2AYRMB/licenses/Qt/Libpng.txt",
+        "RA2AYRMB/licenses/Qt/libpng-2.0.txt",
+        "RA2AYRMB/licenses/Qt/MIT.txt",
+        "RA2AYRMB/licenses/Qt/MIT-open-group.txt",
+        "RA2AYRMB/licenses/Qt/MPL-2.0.txt",
+        "RA2AYRMB/licenses/Qt/PCRE2-BSD-3-Clause-Exception.txt",
+        "RA2AYRMB/licenses/Qt/SHA1-Public-Domain.txt",
+        "RA2AYRMB/licenses/Qt/Zlib.txt",
+        "RA2AYRMB/licenses/XCC/COPYING",
+        "RA2AYRMB/licenses/python-vlc/COPYING",
+        "RA2AYRMB/python-vlc/vlc.py",
+        "RA2AYRMB/licenses/VLC/COPYING.txt",
+        "RA2AYRMB/licenses/VLC/COPYING.LIB",
+        "RA2AYRMB/licenses/VLC/PLUGIN_LICENSES.md",
+        "RA2AYRMB/licenses/VLC/SOURCE_CODE_OFFER.txt",
+        "RA2AYRMB/licenses/Python/LICENSE.txt",
+        "RA2AYRMB/licenses/Python/Expat-COPYING.txt",
+        "RA2AYRMB/licenses/Python/libmpdec-LICENSE.txt",
+        "RA2AYRMB/licenses/Python/Unicode-LICENSE.txt",
+        "RA2AYRMB/licenses/Python/zlib-ng-LICENSE.txt",
+        "RA2AYRMB/licenses/packaging/LICENSE",
+        "RA2AYRMB/licenses/CORRESPONDING_SOURCE_OFFER.txt",
+        "RA2AYRMB/licenses/Microsoft/Visual-C++-Redistributable.md",
+        "RA2AYRMB/licenses/Microsoft/REDIST.txt",
+        "RA2AYRMB/licenses/OpenSSL/LICENSE.txt",
+        "RA2AYRMB/licenses/pycryptodomex-LICENSE.rst",
+        "RA2AYRMB/licenses/PyInstaller/COPYING.txt",
+        "RA2AYRMB/licenses/Mesa/MIT.txt",
+        "RA2AYRMB/licenses/Mesa/Khronos.txt",
+        "RA2AYRMB/licenses/Mesa/Boost-1.0.txt",
+        "RA2AYRMB/licenses/LLVM/LICENSE.TXT",
+        "RA2AYRMB/licenses/CFFI/LICENSE",
+        "RA2AYRMB/licenses/pycparser/LICENSE",
+        "RA2AYRMB/licenses/packaging/LICENSE.APACHE",
+        "RA2AYRMB/licenses/packaging/LICENSE.BSD",
+        "RA2AYRMB/licenses/typing_extensions/LICENSE",
+        "RA2AYRMB/licenses/Lucide/ISC.txt",
+        "RA2AYRMB/_internal/mix_browser/data/name_sources/xcc/ra2 mix description.txt",
+        "RA2AYRMB/_internal/mix_browser/data/name_sources/xcc/td mix description.txt",
+        "RA2AYRMB/_internal/mix_browser/data/name_sources/xcc/ts mix description.txt"
+      ]
+    },
+    "vlc_source": {
+      "filename": "RA2AYRMB-vlc-source-3.0.24.7z",
+      "required_paths": [
+        "RA2AYRMB-vlc-source-3.0.24/README.txt",
+        "RA2AYRMB-vlc-source-3.0.24/SHA256SUMS.txt",
+        "RA2AYRMB-vlc-source-3.0.24/VLC/vlc-3.0.24.tar.xz",
+        "RA2AYRMB-vlc-source-3.0.24/Dependencies/zlib-1.3.2.tar.xz",
+        "RA2AYRMB-vlc-source-3.0.24/Dependencies/libgsm_1.0.13.tar.gz",
+        "RA2AYRMB-vlc-source-3.0.24/Dependencies/openjpeg-2.5.4.tar.gz",
+        "RA2AYRMB-vlc-source-3.0.24/Dependencies/libsamplerate-0.1.9.tar.gz",
+        "RA2AYRMB-vlc-source-3.0.24/Dependencies/mingw-w64-v14.0.0.tar.bz2"
+      ],
+      "required_name_patterns": [
+        "RA2AYRMB-vlc-source-3.0.24/Dependencies/ffmpeg-vlc-commit-71fb6132637a2a430375c24afc381fff8b854fe7-code-ffmpeg.tar.gz"
+      ]
+    }
+  },
+  "binary_audit": {
+    "module_roots": {
+      "Cryptodome": "pycryptodomex",
+      "PySide6": "qt-pyside",
+      "_distutils_hack": "setuptools",
+      "_pyi_rth_utils": "pyinstaller-runtime",
+      "_decimal": "cpython-libmpdec",
+      "cffi": "cffi-pycparser",
+      "mix_browser": "project-application",
+      "packaging": "packaging",
+      "pyexpat": "cpython-expat",
+      "pycparser": "cffi-pycparser",
+      "setuptools": "setuptools",
+      "shiboken6": "qt-pyside",
+      "typing_extensions": "typing-extensions",
+      "unicodedata": "unicode-ucd",
+      "zlib": "cpython-zlib-ng"
+    },
+    "expected_module_roots": ["Cryptodome", "PySide6", "cffi", "mix_browser", "packaging", "pycparser", "setuptools", "shiboken6", "typing_extensions"],
+    "forbidden_module_roots": ["vlc"],
+    "binary_file_rules": [
+      {"pattern": "^RA2AYRMB/RA2AYRMB\\.exe$", "component": "pyinstaller-runtime"},
+      {"pattern": "^RA2AYRMB/_internal/(?:MSVCP140(?:_1|_2|_codecvt_ids)?|VCRUNTIME140(?:_1)?)\\.dll$|^RA2AYRMB/_internal/(?:PySide6|shiboken6)/(?:MSVCP140(?:_1|_2|_codecvt_ids)?|VCRUNTIME140(?:_1)?)\\.dll$", "component": "msvc-runtime"},
+      {"pattern": "^RA2AYRMB/_internal/lib(?:crypto|ssl)-3\\.dll$", "component": "openssl"},
+      {"pattern": "^RA2AYRMB/_internal/libffi-8\\.dll$|^RA2AYRMB/_internal/_cffi_backend[^/]*$", "component": "cffi-pycparser"},
+      {"pattern": "^RA2AYRMB/_internal/Cryptodome/", "component": "pycryptodomex"},
+      {"pattern": "^RA2AYRMB/_internal/(?:PySide6|shiboken6)/", "component": "qt-pyside"},
+      {"pattern": "^RA2AYRMB/_internal/pyexpat\\.pyd$", "component": "cpython-expat"},
+      {"pattern": "^RA2AYRMB/_internal/_decimal\\.pyd$", "component": "cpython-libmpdec"},
+      {"pattern": "^RA2AYRMB/_internal/unicodedata\\.pyd$", "component": "unicode-ucd"},
+      {"pattern": "^RA2AYRMB/_internal/python314\\.dll$", "component": "cpython-zlib-ng"},
+      {"pattern": "^RA2AYRMB/vlc/", "component": "vlc-runtime"},
+      {"pattern": "^RA2AYRMB/_internal/(?:python3\\.dll|base_library\\.zip|[^/]+\\.pyd)$", "component": "cpython"}
+    ]
+  },
+  "post_publication_checks": [
+    "Download the published tag source snapshot and all release assets, then compare their hashes and archive contents with this locally audited candidate."
+  ]
+}
